@@ -1,4 +1,4 @@
-# Network Word Cloud
+# BadSlido
 
 MongoDB をバックエンドとした Next.js 14 のワードクラウドダッシュボードです。サーバーサイドレンダリング (SSR) により、初期表示時から MongoDB のデータが描画されます。
 
@@ -13,7 +13,7 @@ MongoDB をバックエンドとした Next.js 14 のワードクラウドダッ
 ## プロジェクト構成
 
 ```
-network_db/
+BadSlido/
 ├── bun/                      # Next.js アプリケーション
 │   ├── app/
 │   │   ├── api/todos/        # REST API エンドポイント
@@ -50,23 +50,6 @@ docker-compose up
 ```
 
 http://localhost:3000 にアクセスすると、アプリケーションが表示されます。
-
-### 2. ローカル開発
-
-```bash
-cd bun
-
-# 依存関係をインストール
-bun install
-
-# 環境変数を設定
-cp .env.example .env.local
-
-# 開発サーバーを起動
-bun run dev
-```
-
-**注意**: ローカル開発の場合、MongoDB が別途起動している必要があります。
 
 ## 環境変数
 
@@ -125,7 +108,3 @@ bun run dev
 - **スタイリング**: CSS Modules
 - **型システム**: TypeScript
 - **コンテナ**: Docker & Docker Compose
-
-## ライセンス
-
-MIT
