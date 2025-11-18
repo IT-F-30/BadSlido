@@ -1,10 +1,8 @@
-version: '3.8'
-
 services:
   # Next.js アプリケーション (Bun ランタイム)
   app:
     build: ./bun
-    container_name: network_db_app
+    container_name: badslido_app
     tty: true
     volumes: 
       - ./bun:/project
@@ -20,16 +18,11 @@ services:
   # MongoDB データベース
   db:
     build: ./mongoDB
-    container_name: network_db_mongo
+    container_name: badslido_mongo
     tty: true
     volumes:
       - ./mongoDB/mongo_db.js:/docker-entrypoint-initdb.d/mongo_db.js
-      - mongo_data:/data/db
     environment:
       - MONGO_INITDB_ROOT_USERNAME=root
       - MONGO_INITDB_ROOT_PASSWORD=password
       - MONGO_INITDB_DATABASE=db_todo
-
-volumes:
-  mongo_data:
-
