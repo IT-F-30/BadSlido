@@ -1,0 +1,21 @@
+{
+  "name": "network_db",
+  "version": "1.0.0",
+  "description": "jQWCloud Word Cloud Generator",
+  "main": "dist/Plugin/jQWCloudv3.4.1.js",
+  "types": "dist/Plugin/jQWCloudv3.4.1.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "dev": "bun run build && bun --watch run server.ts",
+    "serve": "bun run build && bun run server.ts"
+  },
+  "devDependencies": {
+    "@types/jquery": "^3.5.33",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "mongodb": "^7.0.0"
+  }
+}

@@ -1,0 +1,21 @@
+services:
+
+
+  app:
+    build: ./bun
+    tty: true
+    volumes: 
+      - ./bun:/project
+    ports:
+      - 3000:3000
+
+  db:
+    build: ./mongoDB
+    tty: true
+    volumes:
+      - ./mongoDB/mongo_db.js:/docker-entrypoint-initdb.d/mongo_db.js
+    ports:
+      - "27017:27017"
+
+volumes: # (13)
+  laravel-db-data:
