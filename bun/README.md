@@ -1,72 +1,131 @@
-# jQWCloudv3.4.1
+# Network Word Cloud
 
-jQueryプラグイン - Word Cloud ジェネレーター (v3.4.1)
+MongoDB をバックエンドとした Next.js 14 のワードクラウドダッシュボードです。サーバーサイドレンダリング (SSR) により、初期表示時から MongoDB のデータが描画されます。
 
-## プロジェクト構造
+## 機能
+
+- 📊 リアルタイムでワードクラウドを可視化
+- 🎨 weight に基づいた動的なフォントサイズ
+- ➕ REST API 経由で新しい単語を追加
+- 🐳 Docker Compose で簡単にセットアップ
+- ⚡ Bun ランタイムで高速な開発体験
+
+## プロジェクト構成
 
 ```
 network_db/
-├── Plugin/
-│   └── jQWCloudv3.4.1.ts      # TypeScript変換版
-├── Word Cloud/
-│   └── js/
-│       ├── index.js           # 元のデモファイル
-│       └── index.ts           # TypeScript変換版
-├── dist/                      # コンパイル後の出力先
-├── index.html                 # デモページ
-├── package.json
-└── tsconfig.json
+├── bun/                      # Next.js アプリケーション
+│   ├── app/
+│   │   ├── api/todos/        # REST API エンドポイント
+│   │   ├── globals.css       # グローバルスタイル
+│   │   ├── layout.tsx        # ルートレイアウト
+│   │   └── page.tsx          # トップページ (SSR)
+│   ├── components/
+│   │   ├── TodosClient.tsx   # クライアントサイドロジック
+│   │   └── WordCloudCanvas.tsx # SVG ワードクラウド描画
+│   ├── lib/
+│   │   ├── mongodb.ts        # MongoDB 接続
+│   │   └── todos.ts          # データアクセス層
+│   ├── types/
+│   │   └── todo.ts           # 型定義
+│   ├── Dockerfile
+│   └── package.json
+├── mongoDB/                  # MongoDB コンテナ設定
+│   ├── Dockerfile
+│   └── mongo_db.js           # 初期化スクリプト
+└── docker-compose.yml
 ```
 
 ## セットアップ
 
-### 依存関係のインストール
+### 1. Docker Compose で起動（推奨）
 
 ```bash
+# リポジトリをクローン
+git clone <repository-url>
+cd network_db
+
+# Docker Compose で起動
+docker-compose up
+```
+
+http://localhost:3000 にアクセスすると、アプリケーションが表示されます。
+
+### 2. ローカル開発
+
+```bash
+cd bun
+
+# 依存関係をインストール
 bun install
-# または
-npm install
+
+# 環境変数を設定
+cp .env.example .env.local
+
+# 開発サーバーを起動
+bun run dev
 ```
 
-### TypeScriptのコンパイル
+**注意**: ローカル開発の場合、MongoDB が別途起動している必要があります。
 
-```bash
-# 一度だけビルド
-bun run build
+## 環境変数
 
-# 監視モード（ファイル変更時に自動再コンパイル）
-bun run watch
+| 変数名       | 説明                            | デフォルト値                                         |
+| ------------ | ------------------------------- | ---------------------------------------------------- |
+| MONGODB_URI  | MongoDB 接続 URI                | mongodb://root:password@db:27017/db_todo?authSource=admin |
+| MONGODB_DB   | 使用するデータベース名          | db_todo                                              |
+
+## API エンドポイント
+
+### GET `/api/todos`
+全ての単語データを取得します。
+
+**レスポンス例:**
+```json
+[
+  { "_id": "...", "word": "Network", "weight": 42 },
+  { "_id": "...", "word": "Cloud", "weight": 38 }
+]
 ```
 
-## 使い方
+### POST `/api/todos`
+新しい単語を追加します。
 
-1. TypeScriptファイルをコンパイル:
-   ```bash
-   bun run build
-   ```
+**リクエストボディ:**
+```json
+{
+  "word": "Database",
+  "weight": 35
+}
+```
 
-2. `index.html`をブラウザで開く
+**レスポンス:**
+```json
+{
+  "_id": "...",
+  "word": "Database",
+  "weight": 35
+}
+```
 
-## TypeScript化の主な変更点
+## コマンド一覧
 
-- **型安全性**: すべての変数と関数に型注釈を追加
-- **Enum**: 定数をenumとして定義（SpaceType, AlignmentType）
-- **Interface**: データ構造を明確に定義
-  - `WordInput`: 単語の入力データ
-  - `WordConfig`: Word クラスの設定
-  - `CloudOptions`: プラグインのオプション
-  - `SpaceData`: スペースデータの構造
-- **Class化**: より構造化されたコード
-- **jQuery型定義**: `@types/jquery`による型サポート
+| コマンド        | 説明                       |
+| --------------- | -------------------------- |
+| `bun run dev`   | 開発サーバーを起動         |
+| `bun run build` | 本番用ビルドを生成         |
+| `bun run start` | 本番ビルドを起動           |
+| `bun run lint`  | ESLint を実行              |
 
-## 開発
+## 技術スタック
 
-TypeScriptファイルを編集する場合:
-
-1. `Plugin/jQWCloudv3.4.1.ts` または `Word Cloud/js/index.ts` を編集
-2. `bun run build` でコンパイル
-3. ブラウザでリロード
+- **フロントエンド**: Next.js 14 (App Router), React 18
+- **ランタイム**: Bun
+- **データベース**: MongoDB
+- **スタイリング**: CSS Modules
+- **型システム**: TypeScript
+- **コンテナ**: Docker & Docker Compose
 
 ## ライセンス
 
-元のjQWCloudプラグインのライセンスに準拠
+MIT

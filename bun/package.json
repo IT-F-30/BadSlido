@@ -1,21 +1,26 @@
 {
   "name": "network_db",
   "version": "1.0.0",
-  "description": "jQWCloud Word Cloud Generator",
-  "main": "dist/Plugin/jQWCloudv3.4.1.js",
-  "types": "dist/Plugin/jQWCloudv3.4.1.d.ts",
+  "description": "Word cloud dashboard backed by MongoDB and Next.js",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
-    "clean": "rm -rf dist",
-    "dev": "bun run build && bun --watch run server.ts",
-    "serve": "bun run build && bun run server.ts"
-  },
-  "devDependencies": {
-    "@types/jquery": "^3.5.33",
-    "typescript": "^5.3.3"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "mongodb": "^7.0.0"
+    "mongodb": "^7.0.0",
+    "next": "14.2.5",
+    "react": "^18.3.1",
+    "react-d3-cloud": "1.0.6",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.5",
+    "typescript": "5.4.5"
   }
 }

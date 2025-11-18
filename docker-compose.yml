@@ -1,21 +1,35 @@
+version: '3.8'
+
 services:
-
-
+  # Next.js アプリケーション (Bun ランタイム)
   app:
     build: ./bun
+    container_name: network_db_app
     tty: true
     volumes: 
       - ./bun:/project
     ports:
-      - 3000:3000
+      - "3000:3000"
+    depends_on:
+      - db
+    environment:
+      - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_todo?authSource=admin}
+      - MONGODB_DB=${MONGODB_DB:-db_todo}
+      - NEXT_TELEMETRY_DISABLED=1
 
+  # MongoDB データベース
   db:
     build: ./mongoDB
+    container_name: network_db_mongo
     tty: true
     volumes:
       - ./mongoDB/mongo_db.js:/docker-entrypoint-initdb.d/mongo_db.js
-    ports:
-      - "27017:27017"
+      - mongo_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=password
+      - MONGO_INITDB_DATABASE=db_todo
 
-volumes: # (13)
-  laravel-db-data:
+volumes:
+  mongo_data:
+
