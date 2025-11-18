@@ -1,6 +1,6 @@
 import { MongoClient } from 'mongodb';
 
-const uri = process.env.MONGODB_URI;
+const uri = "mongodb://root:password@db:27017/db_todo?authSource=admin";
 
 if (!uri) {
     throw new Error('MONGODB_URI is not defined. Set it in your environment variables.');
@@ -31,5 +31,5 @@ export function getMongoClient() {
 }
 
 export function getDatabaseName() {
-    return process.env.MONGODB_DB || 'db_todo';
+    return 'db_todo';
 }

@@ -1,14 +1,12 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
+import cloud from 'd3-cloud';
 import type { Todo } from '@/types/todo';
 
-interface PositionedWord extends Todo {
-    x: number;
-    y: number;
-    fontSize: number;
-    rotate: number;
-    color: string;
+interface Word extends d3.layout.cloud.Word {
+    _id?: string;
+    color?: string;
 }
 
 const COLORS = ['#00bcd4', '#26c6da', '#4dd0e1', '#80deea', '#b2ebf2', '#18ffff'];
@@ -38,30 +36,41 @@ function hashWord(word: string) {
 }
 
 export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
-    const positioned = useMemo<PositionedWord[]>(() => {
-        const fontForWeight = mapFontSizes(todos);
-        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-        const centerX = VIEWBOX_WIDTH / 2;
-        const centerY = VIEWBOX_HEIGHT / 2;
+    const [positionedWords, setPositionedWords] = useState<Word[]>([]);
 
-        return todos.map((todo, index) => {
-            const angle = index * goldenAngle;
-            const radius = 12 * Math.sqrt(index + 1);
-            const hash = hashWord(`${todo.word}-${index}`);
-            const x = centerX + radius * Math.cos(angle);
-            const y = centerY + radius * Math.sin(angle);
-            return {
-                ...todo,
-                x,
-                y,
-                fontSize: fontForWeight(todo.weight),
-                rotate: hash % 4 === 0 ? -90 : 0,
-                color: todo.color || COLORS[hash % COLORS.length],
-            };
-        });
+    useEffect(() => {
+        if (!todos.length) {
+            setPositionedWords([]);
+            return;
+        }
+
+        const fontForWeight = mapFontSizes(todos);
+
+        const layout = cloud<Word>()
+            .size([VIEWBOX_WIDTH, VIEWBOX_HEIGHT])
+            .words(
+                todos.map((todo) => {
+                    const hash = hashWord(`${todo.word}-${todo.weight}`);
+                    return {
+                        ...todo,
+                        text: todo.word,
+                        size: fontForWeight(todo.weight),
+                        color: todo.color || COLORS[hash % COLORS.length],
+                    };
+                })
+            )
+            .padding(5)
+            .rotate(() => (Math.random() > 0.7 ? -90 : 0))
+            .font('Montserrat, sans-serif')
+            .fontSize((d) => d.size!)
+            .on('end', (words) => {
+                setPositionedWords(words);
+            });
+
+        layout.start();
     }, [todos]);
 
-    if (!positioned.length) {
+    if (!todos.length) {
         return (
             <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
                 <p style={{ color: '#999' }}>データがありません</p>
@@ -77,20 +86,20 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
             role="img"
             aria-label="Word cloud visualization"
         >
-            {positioned.map((word) => (
-                <text
-                    key={`${word.word}-${word._id ?? word.weight}`}
-                    x={word.x}
-                    y={word.y}
-                    fill={word.color}
-                    fontSize={word.fontSize}
-                    fontFamily="Montserrat, sans-serif"
-                    textAnchor="middle"
-                    transform={`rotate(${word.rotate}, ${word.x}, ${word.y})`}
-                >
-                    {word.word}
-                </text>
-            ))}
+            <g transform={`translate(${VIEWBOX_WIDTH / 2},${VIEWBOX_HEIGHT / 2})`}>
+                {positionedWords.map((word) => (
+                    <text
+                        key={`${word.text}-${word._id ?? word.size}`}
+                        fill={word.color}
+                        fontSize={word.size}
+                        fontFamily={word.font}
+                        textAnchor="middle"
+                        transform={`translate(${word.x}, ${word.y}) rotate(${word.rotate})`}
+                    >
+                        {word.text}
+                    </text>
+                ))}
+            </g>
         </svg>
     );
 }
