@@ -2,6 +2,8 @@ db = db.getSiblingDB('db_todo');
 
 db.todos.insertMany([
     { word: 'Todo', weight: 1 },
+    { word: 'Todo', weight: 10 },
+    { word: 'Todo', weight: 50 },
     { word: 'Todo', weight: 100 },
     { word: 'Todo', weight: 100 },
     { word: 'Todo', weight: 100 },
@@ -33,7 +35,5 @@ db.todos.insertMany([
     { word: 'Todo', weight: 100 },
     { word: 'Todo', weight: 100 },
     { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 }
+    { word: 'Todo', weight: 1000 }
 ]);

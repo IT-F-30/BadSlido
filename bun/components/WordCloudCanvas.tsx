@@ -1,105 +1,295 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import cloud from 'd3-cloud';
+import { useEffect, useState, useRef } from 'react';
 import type { Todo } from '@/types/todo';
 
-interface Word extends d3.layout.cloud.Word {
-    _id?: string;
-    color?: string;
+const WORD_CLOUD_CONFIG = {
+    fontOffset: 10,
+    fontFamily: 'Montserrat, sans-serif',
+    verticalEnabled: true,
+    padding_left: 2,
+    padding_top: 2
+};
+
+enum SpaceType {
+    LB = 1,  // Left Bottom
+    LT = 2,  // Left Top
+    RT = 3,  // Right Top
+    RB = 4   // Right Bottom
 }
 
-const COLORS = ['#00bcd4', '#26c6da', '#4dd0e1', '#80deea', '#b2ebf2', '#18ffff'];
-const VIEWBOX_WIDTH = 900;
-const VIEWBOX_HEIGHT = 600;
-
-function mapFontSizes(todos: Todo[]) {
-    if (!todos.length) {
-        return () => 16;
-    }
-
-    const weights = todos.map((todo) => todo.weight);
-    const min = Math.min(...weights);
-    const max = Math.max(...weights);
-    const spread = max - min || 1;
-
-    return (weight: number) => 12 + ((weight - min) / spread) * 72;
+enum AlignmentType {
+    HR = 1,  // Horizontal
+    VR = 2   // Vertical
 }
 
-function hashWord(word: string) {
-    let hash = 0;
-    for (let i = 0; i < word.length; i += 1) {
-        hash = (hash << 5) - hash + word.charCodeAt(i);
-        hash |= 0; // Convert to 32bit integer
+interface PlacedWord {
+    id: string;
+    text: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    color: string;
+    font: string;
+    fontSize: number;
+    rotate: number;
+}
+
+interface Space {
+    spaceType: SpaceType;
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+}
+
+function getRandomColor() {
+    const letters = '0123456789ABCDEF';
+    let color = '#';
+    for (let i = 0; i < 6; i++) {
+        const minHex = 5;
+        const idx = Math.floor(Math.random() * (16 - minHex)) + minHex;
+        color += letters[idx];
     }
-    return Math.abs(hash);
+    return color;
 }
 
 export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
-    const [positionedWords, setPositionedWords] = useState<Word[]>([]);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [words, setWords] = useState<PlacedWord[]>([]);
 
     useEffect(() => {
-        if (!todos.length) {
-            setPositionedWords([]);
+        if (!todos.length || !containerRef.current) {
+            setWords([]);
             return;
         }
 
-        const fontForWeight = mapFontSizes(todos);
+        const container = containerRef.current;
+        const tWidth = container.offsetWidth;
+        const tHeight = container.offsetHeight;
+        const xOffset = tWidth / 2;
+        const yOffset = tHeight / 2;
 
-        const layout = cloud<Word>()
-            .size([VIEWBOX_WIDTH, VIEWBOX_HEIGHT])
-            .words(
-                todos.map((todo) => {
-                    const hash = hashWord(`${todo.word}-${todo.weight}`);
-                    return {
-                        ...todo,
-                        text: todo.word,
-                        size: fontForWeight(todo.weight),
-                        color: todo.color || COLORS[hash % COLORS.length],
-                    };
-                })
-            )
-            .padding(5)
-            .rotate(() => (Math.random() > 0.7 ? -90 : 0))
-            .font('Montserrat, sans-serif')
-            .fontSize((d) => d.size!)
-            .on('end', (words) => {
-                setPositionedWords(words);
-            });
+        const options = {
+            ...WORD_CLOUD_CONFIG,
+            minFont: Math.max(Math.floor(tWidth / 30), 10),
+            maxFont: Math.floor(tWidth / 6),
+        };
 
-        layout.start();
+        const sortedTodos = [...todos].sort((a, b) => b.weight - a.weight);
+
+        if (sortedTodos.length === 0) return;
+
+        const maxWeight = sortedTodos[0].weight;
+        const minWeight = sortedTodos[sortedTodos.length - 1].weight;
+        const fontFactor = (options.maxFont - options.minFont) / ((maxWeight - minWeight) || 1);
+
+        let spaceDataObject: { [key: string]: Space } = {};
+        let spaceIdArray: string[] = [];
+        let distance_Counter = 1;
+
+        const pushSpaceData = (type: SpaceType, w: number, h: number, x: number, y: number) => {
+            const distance = Math.sqrt((xOffset - x) * (xOffset - x) + (yOffset - y) * (yOffset - y));
+            const distanceS = `${distance}_${distance_Counter++}`;
+
+            let inserted = false;
+            for (let index = 0; index < spaceIdArray.length; index++) {
+                if (distance < parseFloat(spaceIdArray[index].split("_")[0])) {
+                    spaceIdArray.splice(index, 0, distanceS);
+                    inserted = true;
+                    break;
+                }
+            }
+            if (!inserted) spaceIdArray.push(distanceS);
+
+            spaceDataObject[distanceS] = { spaceType: type, width: w, height: h, x, y };
+        };
+
+        const measureWord = (text: string, fontSize: number) => {
+            const span = document.createElement('span');
+            span.style.position = 'absolute';
+            span.style.visibility = 'hidden';
+            span.style.fontSize = `${fontSize}px`;
+            span.style.fontFamily = options.fontFamily;
+            span.style.lineHeight = `${fontSize}px`;
+            span.style.paddingLeft = `${options.padding_left}px`;
+            span.style.whiteSpace = 'nowrap';
+            span.innerText = text;
+            document.body.appendChild(span);
+            const w = span.offsetWidth;
+            const h = span.offsetHeight;
+            document.body.removeChild(span);
+            return { w, h };
+        };
+
+        const placedWords: PlacedWord[] = [];
+
+        sortedTodos.forEach((todo, index) => {
+            const fontSize = Math.floor(((todo.weight - minWeight) * fontFactor) + options.minFont + options.fontOffset);
+            const color = getRandomColor();
+
+            const { w, h } = measureWord(todo.word, fontSize);
+
+            let placed = false;
+            let pX = 0, pY = 0, pRotate = 0;
+
+            if (index === 0) {
+                const xoff = xOffset - w / 2;
+                const yoff = yOffset - h / 2;
+
+                pX = xoff;
+                pY = yoff;
+                placed = true;
+
+                pushSpaceData(SpaceType.LB, tWidth - xoff - w, h, xoff + w, yoff + h / 2);
+                pushSpaceData(SpaceType.LT, w, tHeight - yoff - h, xoff + w / 2, yoff + h);
+                pushSpaceData(SpaceType.RT, xoff, h, xoff, yoff + h / 2);
+                pushSpaceData(SpaceType.RB, w, yoff, xoff + w / 2, yoff);
+
+                pushSpaceData(SpaceType.LT, w / 2, h / 2, xoff + w, yoff + h / 2);
+                pushSpaceData(SpaceType.RT, w / 2, h / 2, xoff + w / 2, yoff + h);
+                pushSpaceData(SpaceType.RB, w / 2, h / 2, xoff, yoff + h / 2);
+                pushSpaceData(SpaceType.LB, w / 2, h / 2, xoff + w / 2, yoff);
+
+                pushSpaceData(SpaceType.LT, tWidth - xoff - w - w / 2, tHeight - yoff - h / 2, xoff + w + w / 2, yoff + h / 2);
+                pushSpaceData(SpaceType.RT, xoff + w / 2, tHeight - yoff - h - h / 2, xoff + w / 2, yoff + h + h / 2);
+                pushSpaceData(SpaceType.RB, xoff - w / 2, yoff + h / 2, xoff - w / 2, yoff + h / 2);
+                pushSpaceData(SpaceType.LB, xoff + w / 2, yoff - h / 2, xoff + w / 2, yoff - h / 2);
+
+            } else {
+                for (let i = 0; i < spaceIdArray.length; i++) {
+                    const spaceId = spaceIdArray[i];
+                    const space = spaceDataObject[spaceId];
+                    if (!space) continue;
+
+                    let alignmentInd = 0;
+                    let alignmentIndCount = 0;
+
+                    if (w <= space.width && h <= space.height) {
+                        alignmentInd = AlignmentType.HR;
+                        alignmentIndCount++;
+                    }
+
+                    if (options.verticalEnabled && h <= space.width && w <= space.height) {
+                        alignmentInd = AlignmentType.VR;
+                        alignmentIndCount++;
+                    }
+
+                    if (alignmentIndCount > 0) {
+                        delete spaceDataObject[spaceId];
+                        spaceIdArray.splice(i, 1);
+
+                        if (alignmentIndCount > 1) {
+                            if (Math.random() * 5 > 3) {
+                                alignmentInd = AlignmentType.VR;
+                            } else {
+                                alignmentInd = AlignmentType.HR;
+                            }
+                        }
+
+                        let xMul = 1, yMul = 1;
+                        let xMulS = 1, yMulS = 1;
+
+                        switch (space.spaceType) {
+                            case SpaceType.LB: xMul = 0; yMul = -1; xMulS = 1; yMulS = -1; break;
+                            case SpaceType.LT: xMul = 0; yMul = 0; xMulS = 1; yMulS = 1; break;
+                            case SpaceType.RT: xMul = -1; yMul = 0; xMulS = -1; yMulS = 1; break;
+                            case SpaceType.RB: xMul = -1; yMul = -1; xMulS = -1; yMulS = -1; break;
+                        }
+
+                        if (alignmentInd === AlignmentType.HR) {
+                            pX = space.x + xMul * w;
+                            pY = space.y + yMul * h;
+                            pRotate = 0;
+                            placed = true;
+
+                            if (Math.random() * 2 > 1) {
+                                pushSpaceData(space.spaceType, space.width - w, h, space.x + xMulS * w, space.y);
+                                pushSpaceData(space.spaceType, space.width, space.height - h, space.x, space.y + yMulS * h);
+                            } else {
+                                pushSpaceData(space.spaceType, space.width - w, space.height, space.x + xMulS * w, space.y);
+                                pushSpaceData(space.spaceType, w, space.height - h, space.x, space.y + yMulS * h);
+                            }
+                        } else {
+                            pX = space.x + xMul * h - (w - h) / 2;
+                            pY = space.y + yMul * w + (w - h) / 2;
+                            pRotate = 270;
+                            placed = true;
+
+                            if (Math.random() * 2 > 1) {
+                                pushSpaceData(space.spaceType, space.width - h, w, space.x + xMulS * h, space.y);
+                                pushSpaceData(space.spaceType, space.width, space.height - w, space.x, space.y + yMulS * w);
+                            } else {
+                                pushSpaceData(space.spaceType, space.width - h, space.height, space.x + xMulS * h, space.y);
+                                pushSpaceData(space.spaceType, h, space.height - w, space.x, space.y + yMulS * w);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (placed) {
+                placedWords.push({
+                    id: todo._id || `${todo.word}-${index}`,
+                    text: todo.word,
+                    x: pX,
+                    y: pY,
+                    width: w,
+                    height: h,
+                    color,
+                    font: options.fontFamily,
+                    fontSize,
+                    rotate: pRotate
+                });
+            }
+        });
+
+        setWords(placedWords);
+
     }, [todos]);
 
     if (!todos.length) {
         return (
-            <div style={{ width: '100vw', height: '100vh', display: 'grid', placeItems: 'center' }}>
+            <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
                 <p style={{ color: '#999' }}>データがありません</p>
             </div>
         );
     }
 
     return (
-        <svg
-            width="100%"
-            height="100%"
-            viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
-            role="img"
-            aria-label="Word cloud visualization"
+        <div
+            ref={containerRef}
+            style={{
+                width: '100%',
+                height: '75vh',
+                position: 'relative',
+                overflow: 'hidden',
+                fontFamily: 'Montserrat, sans-serif'
+            }}
         >
-            <g transform={`translate(${VIEWBOX_WIDTH / 2},${VIEWBOX_HEIGHT / 2})`}>
-                {positionedWords.map((word) => (
-                    <text
-                        key={`${word.text}-${word._id ?? word.size}`}
-                        fill={word.color}
-                        fontSize={word.size}
-                        fontFamily={word.font}
-                        textAnchor="middle"
-                        transform={`translate(${word.x}, ${word.y}) rotate(${word.rotate})`}
-                    >
-                        {word.text}
-                    </text>
-                ))}
-            </g>
-        </svg>
+            {words.map((word) => (
+                <span
+                    key={word.id}
+                    style={{
+                        position: 'absolute',
+                        left: word.x,
+                        top: word.y,
+                        fontSize: `${word.fontSize}px`,
+                        fontFamily: word.font,
+                        color: word.color,
+                        lineHeight: `${word.fontSize}px`,
+                        paddingLeft: '2px',
+                        whiteSpace: 'nowrap',
+                        transform: `rotate(${word.rotate}deg)`,
+                        transformOrigin: 'center center',
+                        userSelect: 'none'
+                    }}
+                >
+                    {word.text}
+                </span>
+            ))}
+        </div>
     );
 }
