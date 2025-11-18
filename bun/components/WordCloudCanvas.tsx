@@ -72,7 +72,7 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
 
     if (!todos.length) {
         return (
-            <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
+            <div style={{ width: '100vw', height: '100vh', display: 'grid', placeItems: 'center' }}>
                 <p style={{ color: '#999' }}>データがありません</p>
             </div>
         );

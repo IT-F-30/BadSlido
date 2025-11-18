@@ -7,8 +7,7 @@ export default async function Home() {
     return (
         <main>
             <div>
-                <p>MongoDBからのデータをSSRで初期描画しています。</p>
-                <h1>Word Cloud Dashboard</h1>
+                <h1>BadSlido</h1>
             </div>
             <TodosClient initialTodos={todos} />
         </main>

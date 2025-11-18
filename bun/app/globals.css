@@ -2,7 +2,7 @@
     color-scheme: dark;
     background-color: #111;
     color: #f7f7f7;
-    font-family: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Montserrat', sans-serif;
 }
 
 * {
@@ -89,7 +89,7 @@ h1 {
 
 .word-cloud-shell {
     flex: 1;
-    min-height: 60vh;
+    max-height: 60vh;
     background: #1d1d1d;
     border-radius: 1.25rem;
     border: 1px solid rgba(255, 255, 255, 0.06);
