@@ -13,29 +13,19 @@ NEXT_PID=$!
 echo "⏳ Waiting for Next.js to start..."
 sleep 5
 
-# localtunnelで外部公開
-echo "🌐 Starting localtunnel..."
+# Cloudflare Tunnelで外部公開
+echo "🌐 Starting Cloudflare Tunnel..."
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-npx localtunnel --port 3000 --subdomain badslido 2>&1 | while read line; do
-    echo "$line"
-    if echo "$line" | grep -q "your url is:"; then
-        URL=$(echo "$line" | grep -o 'https://[^ ]*')
-        echo "═══════════════════════════════════════════════════════════"
-        echo "✅ BadSlido is now publicly accessible at:"
-        echo "   $URL"
-        echo "═══════════════════════════════════════════════════════════"
-        echo ""
-    fi
-done &
-LT_PID=$!
+bunx cloudflared tunnel --url http://localhost:3000 &
+TUNNEL_PID=$!
 
 # クリーンアップ処理
 cleanup() {
     echo ""
     echo "🛑 Stopping services..."
     kill $NEXT_PID 2>/dev/null
-    kill $LT_PID 2>/dev/null
+    kill $TUNNEL_PID 2>/dev/null
     exit 0
 }
 

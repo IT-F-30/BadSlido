@@ -37,3 +37,4 @@ Thumbs.db
 
 # Docker volumes
 mongo_data/
+bun/bun.lock

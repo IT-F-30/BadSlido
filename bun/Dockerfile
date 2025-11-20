@@ -1,6 +1,9 @@
 # ベースイメージ
 FROM oven/bun:latest
 
+# CA証明書をインストール (SSL接続エラー対策)
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /project
 
 ENV NEXT_TELEMETRY_DISABLED=1
