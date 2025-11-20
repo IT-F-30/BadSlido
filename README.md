@@ -9,6 +9,7 @@ MongoDB をバックエンドとした Next.js  のワードクラウドダッ�
 - ➕ REST API 経由で新しい単語を追加
 - 🐳 Docker Compose で簡単にセットアップ
 - ⚡ Bun ランタイムで高速な開発体験
+- 🌐 Cloudflare Tunnel でローカル環境を外部公開
 
 ## プロジェクト構成
 
@@ -28,6 +29,7 @@ BadSlido/
 │   │   └── todos.ts          # データアクセス層
 │   ├── types/
 │   │   └── todo.ts           # 型定義
+│   ├── start-with-tunnel.sh  # Cloudflare Tunnel 起動スクリプト
 │   ├── Dockerfile
 │   └── package.json
 ├── mongoDB/                  # MongoDB コンテナ設定
@@ -43,7 +45,7 @@ BadSlido/
 ```bash
 # リポジトリをクローン
 git clone <repository-url>
-cd network_db
+cd BadSlido
 
 # Docker Compose で起動
 docker-compose up
