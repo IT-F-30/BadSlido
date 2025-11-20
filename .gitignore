@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-bun.lock
+bun/bun.lock
 
 # Build output
 dist/
@@ -37,4 +37,3 @@ Thumbs.db
 
 # Docker volumes
 mongo_data/
-bun/bun.lock

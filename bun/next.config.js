@@ -3,10 +3,15 @@ const nextConfig = {
     reactStrictMode: true,
     webpack: (config, { isServer }) => {
         // Suppress node-fetch warnings when using Bun
+        config.infrastructureLogging = {
+            level: 'error',
+        };
+
         config.ignoreWarnings = [
             { module: /node-fetch/ },
-            /Caching failed for pack/,
-            /Resolving dependencies are ignored for this path/,
+            { module: /next-font-loader/ },
+            { message: /Caching failed for pack/ },
+            { message: /Resolving dependencies are ignored for this path/ },
         ];
 
         // Workaround for node-fetch issue with next/font in Bun
