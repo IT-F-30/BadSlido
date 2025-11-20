@@ -1,5 +1,5 @@
 {
-  "name": "network_db",
+  "name": "badslido",
   "version": "1.0.0",
   "description": "Word cloud dashboard backed by MongoDB and Next.js",
   "scripts": {
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@types/d3-cloud": "^1.2.9",
+    "localtunnel": "^2.0.2",
     "mongodb": "^7.0.0",
     "next": "14.2.5",
     "node-fetch": "^3.3.2",
