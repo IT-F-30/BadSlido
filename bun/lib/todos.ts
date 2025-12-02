@@ -1,6 +1,6 @@
 import type { Todo } from '@/types/todo';
 import { getDatabaseName, getMongoClient } from '@/lib/mongodb';
-import type { InsertOneResult, WithId } from 'mongodb';
+import { ObjectId, type InsertOneResult, type WithId } from 'mongodb';
 
 const COLLECTION = 'todos';
 
@@ -22,4 +22,11 @@ export async function createTodo(payload: Pick<Todo, 'word' | 'weight'>): Promis
 
     const result: InsertOneResult<Todo> = await collection.insertOne({ ...payload });
     return { ...payload, _id: result.insertedId.toString() };
+}
+
+export async function deleteTodo(id: string): Promise<void> {
+    const client = await getMongoClient();
+    const collection = client.db(getDatabaseName()).collection<Todo>(COLLECTION);
+
+    await collection.deleteOne({ _id: new ObjectId(id) });
 }

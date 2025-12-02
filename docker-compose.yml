@@ -4,7 +4,7 @@ services:
     build: ./bun
     container_name: badslido_app
     tty: true
-    volumes: 
+    volumes:
       - ./bun:/project
     ports:
       - "3000:3000"
@@ -22,7 +22,16 @@ services:
     tty: true
     volumes:
       - ./mongoDB/mongo_db.js:/docker-entrypoint-initdb.d/mongo_db.js
+    ports:
+      - "27017:27017"
+    command: [ "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongo.key" ]
     environment:
       - MONGO_INITDB_ROOT_USERNAME=root
       - MONGO_INITDB_ROOT_PASSWORD=password
       - MONGO_INITDB_DATABASE=db_todo
+    healthcheck:
+      test: |
+        mongosh --eval "try { rs.status() } catch (err) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'db:27017'}]}) }" -u root -p password --authenticationDatabase admin
+      interval: 5s
+      timeout: 5s
+      retries: 5

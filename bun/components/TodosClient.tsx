@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition, type ChangeEvent, type FormEvent } from 'react';
+import { useMemo, useState, useTransition, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import WordCloudCanvas from '@/components/WordCloudCanvas';
 import type { Todo } from '@/types/todo';
 
@@ -14,6 +14,43 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
     const [weight, setWeight] = useState('');
     const [isPending, startTransition] = useTransition();
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        const eventSource = new EventSource('/api/sse');
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'update') {
+                    fetchTodos();
+                }
+            } catch (error) {
+                console.error('SSE parse error', error);
+            }
+        };
+
+        // Handle errors (optional, browser auto-retries usually)
+        eventSource.onerror = (err) => {
+            console.error('SSE connection error', err);
+            // We don't close it explicitly to allow auto-reconnect
+        };
+
+        return () => {
+            eventSource.close();
+        };
+    }, []);
+
+    const fetchTodos = async () => {
+        try {
+            const response = await fetch('/api/todos');
+            if (response.ok) {
+                const newTodos = await response.json();
+                setTodos(newTodos);
+            }
+        } catch (error) {
+            console.error('Failed to fetch todos', error);
+        }
+    };
 
     const sortedTodos = useMemo(
         () => [...todos].sort((a, b) => b.weight - a.weight),
