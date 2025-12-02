@@ -90,7 +90,6 @@ h1 {
 .word-cloud-shell {
     flex: 1;
     max-height: 80vh;
-    max-width: 90vw;
     background: #1d1d1d;
     border-radius: 1.25rem;
     border: 1px solid rgba(255, 255, 255, 0.06);

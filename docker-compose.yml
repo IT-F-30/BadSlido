@@ -9,7 +9,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_todo?authSource=admin}
       - MONGODB_DB=${MONGODB_DB:-db_todo}

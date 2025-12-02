@@ -29,6 +29,10 @@ export async function POST(req: Request, _context: RouteContext) {
             return NextResponse.json({ error: 'weight must be a number' }, { status: 400 });
         }
 
+        if (parsedWeight < 1 || parsedWeight > 100) {
+            return NextResponse.json({ error: 'weight must be between 1 and 100' }, { status: 400 });
+        }
+
         const newTodo = await createTodo({ word: word.trim(), weight: parsedWeight });
         return NextResponse.json(newTodo, { status: 201 });
     } catch (error) {

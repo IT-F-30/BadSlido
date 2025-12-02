@@ -1,39 +1,26 @@
 db = db.getSiblingDB('db_todo');
 
-db.todos.insertMany([
-    { word: 'Todo', weight: 1 },
-    { word: 'Todo', weight: 10 },
-    { word: 'Todo', weight: 50 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 100 },
-    { word: 'Todo', weight: 1000 }
-]);
+// Create collection with validation rules
+db.createCollection('todos', {
+    validator: {
+        $jsonSchema: {
+            bsonType: 'object',
+            required: ['word', 'weight'],
+            properties: {
+                word: {
+                    bsonType: 'string',
+                    description: 'word must be a string and is required'
+                },
+                weight: {
+                    bsonType: 'int',
+                    minimum: 1,
+                    maximum: 100,
+                    description: 'weight must be an integer between 1 and 100'
+                }
+            }
+        }
+    },
+    validationAction: 'error'
+});
+
+
