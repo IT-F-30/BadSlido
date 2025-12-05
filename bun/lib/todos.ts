@@ -9,25 +9,11 @@ function normalize(doc: WithId<Todo>): Todo {
     return { ...rest, _id: _id?.toString() };
 }
 
-const DEFAULT_TODOS: Pick<Todo, 'word' | 'weight'>[] = [
-    { word: 'React', weight: 10 },
-    { word: 'Next.js', weight: 8 },
-    { word: 'TypeScript', weight: 8 },
-    { word: 'MongoDB', weight: 6 },
-    { word: 'Docker', weight: 5 },
-];
-
 export async function getTodos(): Promise<Todo[]> {
     try {
         const client = await getMongoClient();
         const collection = client.db(getDatabaseName()).collection<Todo>(COLLECTION);
         const docs = await collection.find({}, { sort: { weight: -1 } }).toArray();
-
-        if (docs.length === 0) {
-            console.log('No todos found, initializing with default data...');
-            await collection.insertMany(DEFAULT_TODOS as any);
-            return (await collection.find({}, { sort: { weight: -1 } }).toArray()).map(normalize);
-        }
 
         return docs.map(normalize);
     } catch (error) {

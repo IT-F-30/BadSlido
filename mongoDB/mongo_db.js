@@ -23,10 +23,3 @@ db.createCollection('todos', {
     validationAction: 'error'
 });
 
-db.todos.insertMany([
-    { word: 'React', weight: 10 },
-    { word: 'Next.js', weight: 8 },
-    { word: 'TypeScript', weight: 8 },
-    { word: 'MongoDB', weight: 6 },
-    { word: 'Docker', weight: 5 }
-]);
