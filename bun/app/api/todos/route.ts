@@ -20,11 +20,12 @@ export async function POST(req: Request, _context: RouteContext) {
         const body = await req.json();
         const { word, weight } = body ?? {};
 
-        if (!word || typeof word !== 'string' || weight === undefined) {
-            return NextResponse.json({ error: 'word and weight are required' }, { status: 400 });
+        if (!word || typeof word !== 'string') {
+            return NextResponse.json({ error: 'word is required' }, { status: 400 });
         }
 
-        const parsedWeight = Number(weight);
+        // weight はオプション、指定されない場合はデフォルト値 1 を使用
+        const parsedWeight = weight !== undefined ? Number(weight) : 1;
         if (!Number.isFinite(parsedWeight)) {
             return NextResponse.json({ error: 'weight must be a number' }, { status: 400 });
         }

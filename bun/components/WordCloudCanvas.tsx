@@ -284,8 +284,6 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
             result = attemptPlacement(scale);
             const placementRate = result.length / todos.length;
 
-            console.log(`Word cloud: placed ${result.length}/${todos.length} words with scale ${scale} (${Math.round(placementRate * 100)}%)`);
-
             // If we placed at least 80% of words, or it's the last attempt, use this result
             if (placementRate >= 0.8 || scale === scales[scales.length - 1]) {
                 break;

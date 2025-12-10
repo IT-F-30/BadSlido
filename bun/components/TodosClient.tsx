@@ -61,9 +61,8 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
         event.preventDefault();
         setError('');
 
-        const numericWeight = Number(weight);
-        if (!word.trim() || !Number.isFinite(numericWeight)) {
-            setError('単語と数値のweightを入力してください。');
+        if (!word.trim()) {
+            setError('単語を入力してください。');
             return;
         }
 
@@ -72,7 +71,7 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
                 const response = await fetch('/api/todos', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ word: word.trim(), weight: numericWeight }),
+                    body: JSON.stringify({ word: word.trim() }),
                 });
 
                 if (!response.ok) {
@@ -82,6 +81,16 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
 
                 const newTodo: Todo = await response.json();
                 setTodos((prev) => [...prev, newTodo]);
+
+                // 全 messages を取得してコンソールに表示
+                const messagesResponse = await fetch('/api/messages');
+                if (messagesResponse.ok) {
+                    const messages = await messagesResponse.json();
+                    const messageList = messages
+                        .map((m: { _id: string; word: string }) => `${m._id}:${m.word}`)
+                        .join('\n');
+                    console.log(`[message]\n${messageList}`);
+                }
                 setWord('');
                 setWeight('');
             } catch (submitError) {
@@ -107,16 +116,6 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
                             value={word}
                             onChange={(event: ChangeEvent<HTMLInputElement>) => setWord(event.target.value)}
                             placeholder="例: Network"
-                            required
-                        />
-                    </label>
-                    <label>
-                        Weight（数値）
-                        <input
-                            type="number"
-                            value={weight}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => setWeight(event.target.value)}
-                            placeholder="例: 42"
                             required
                         />
                     </label>

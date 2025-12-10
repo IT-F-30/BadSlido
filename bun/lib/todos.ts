@@ -25,9 +25,16 @@ export async function getTodos(): Promise<Todo[]> {
 export async function createTodo(payload: Pick<Todo, 'word' | 'weight'>): Promise<Todo> {
     try {
         const client = await getMongoClient();
-        const collection = client.db(getDatabaseName()).collection<Todo>(COLLECTION);
+        const db = client.db(getDatabaseName());
+        const todosCollection = db.collection<Todo>(COLLECTION);
+        const messagesCollection = db.collection('messages');
 
-        const result: InsertOneResult<Todo> = await collection.insertOne({ ...payload });
+        const result: InsertOneResult<Todo> = await todosCollection.insertOne({ ...payload });
+
+        // messages コレクションには word (string) のみを追加（weight は含めない）
+        await messagesCollection.insertOne({ word: payload.word });
+        console.log(`[messages] Added word: "${payload.word}"`);
+
         return { ...payload, _id: result.insertedId.toString() };
     } catch (error) {
         console.error('Failed to create todo:', error);
