@@ -4,9 +4,10 @@ import type { WithId } from 'mongodb';
 export interface Message {
     _id?: string;
     word: string;
+    weight: number;
 }
 
-const COLLECTION = 'messages';
+const COLLECTION = 'correlations';
 
 function normalize(doc: WithId<Message>): Message {
     const { _id, ...rest } = doc;

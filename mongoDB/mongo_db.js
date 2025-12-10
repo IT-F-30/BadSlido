@@ -26,6 +26,12 @@ db.createCollection('correlations', {
                 correlation: {
                     bsonType: 'string',
                     description: 'correlation must be a string and is required'
+                },
+                weight: {
+                    bsonType: 'int',
+                    minimum: 1,
+                    maximum: 100,
+                    description: 'weight must be an integer between 1 and 100'
                 }
             }
         }
