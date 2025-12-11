@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import type { Todo } from '@/types/todo';
+import type { Message } from '@/lib/messages';
 
 const WORD_CLOUD_CONFIG = {
     fontOffset: 10,
@@ -55,12 +55,12 @@ function getRandomColor() {
     return color;
 }
 
-export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
+export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [words, setWords] = useState<PlacedWord[]>([]);
 
     useEffect(() => {
-        if (!todos.length || !containerRef.current) {
+        if (!messages.length || !containerRef.current) {
             setWords([]);
             return;
         }
@@ -90,12 +90,12 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
                 maxFont: Math.floor(tWidth / 6) * fontScale,
             };
 
-            const sortedTodos = [...todos].sort((a, b) => b.weight - a.weight);
+            const sortedWords = [...messages].sort((a, b) => b.weight - a.weight);
 
-            if (sortedTodos.length === 0) return [];
+            if (sortedWords.length === 0) return [];
 
-            const maxWeight = sortedTodos[0].weight;
-            const minWeight = sortedTodos[sortedTodos.length - 1].weight;
+            const maxWeight = sortedWords[0].weight;
+            const minWeight = sortedWords[sortedWords.length - 1].weight;
             const fontFactor = (options.maxFont - options.minFont) / ((maxWeight - minWeight) || 1);
 
             let spaceDataObject: { [key: string]: Space } = {};
@@ -141,11 +141,11 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
 
             const placedWords: PlacedWord[] = [];
 
-            sortedTodos.forEach((todo, index) => {
-                const fontSize = Math.floor(((todo.weight - minWeight) * fontFactor) + options.minFont + options.fontOffset);
+            sortedWords.forEach((wordItem, index) => {
+                const fontSize = Math.floor(((wordItem.weight - minWeight) * fontFactor) + options.minFont + options.fontOffset);
                 const color = getRandomColor();
 
-                const { w, h } = measureWord(todo.word, fontSize);
+                const { w, h } = measureWord(wordItem.word, fontSize);
 
                 let placed = false;
                 let pX = 0, pY = 0, pRotate = 0;
@@ -259,8 +259,8 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
 
                 if (placed) {
                     placedWords.push({
-                        id: todo._id || `${todo.word}-${index}`,
-                        text: todo.word,
+                        id: wordItem._id || `${wordItem.word}-${index}`,
+                        text: wordItem.word,
                         x: pX,
                         y: pY,
                         width: w,
@@ -282,7 +282,7 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
 
         for (const scale of scales) {
             result = attemptPlacement(scale);
-            const placementRate = result.length / todos.length;
+            const placementRate = result.length / messages.length;
 
             // If we placed at least 80% of words, or it's the last attempt, use this result
             if (placementRate >= 0.8 || scale === scales[scales.length - 1]) {
@@ -292,9 +292,9 @@ export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
 
         setWords(result);
 
-    }, [todos]);
+    }, [messages]);
 
-    if (!todos.length) {
+    if (!messages.length) {
         return (
             <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
                 <p style={{ color: '#999' }}>データがありません</p>

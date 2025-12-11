@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import WordCloudCanvas from '@/components/WordCloudCanvas';
 import type { Todo } from '@/types/todo';
+import type { Message } from '@/lib/messages';
 
 interface TodosClientProps {
     initialTodos: Todo[];
@@ -10,6 +11,7 @@ interface TodosClientProps {
 
 export default function TodosClient({ initialTodos }: TodosClientProps) {
     const [todos, setTodos] = useState<Todo[]>(initialTodos);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [word, setWord] = useState('');
     const [weight, setWeight] = useState('');
     const [isPending, startTransition] = useTransition();
@@ -23,6 +25,7 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
                 const data = JSON.parse(event.data);
                 if (data.type === 'update') {
                     fetchTodos();
+                    fetchMessages();
                 }
             } catch (error) {
                 console.error('SSE parse error', error);
@@ -40,6 +43,10 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
         };
     }, []);
 
+    useEffect(() => {
+        fetchMessages();
+    }, []);
+
     const fetchTodos = async () => {
         try {
             const response = await fetch('/api/todos');
@@ -49,6 +56,18 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
             }
         } catch (error) {
             console.error('Failed to fetch todos', error);
+        }
+    };
+
+    const fetchMessages = async () => {
+        try {
+            const response = await fetch('/api/messages');
+            if (response.ok) {
+                const newMessages = await response.json();
+                setMessages(newMessages);
+            }
+        } catch (error) {
+            console.error('Failed to fetch messages', error);
         }
     };
 
@@ -82,7 +101,8 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
                 const newTodo: Todo = await response.json();
                 setTodos((prev) => [...prev, newTodo]);
 
-                // 全 messages を取得してコンソールに表示
+                // 全 messages を取得してコンソールに表示 -> State更新に変更
+                await fetchMessages();
                 const messagesResponse = await fetch('/api/messages');
                 if (messagesResponse.ok) {
                     const messages = await messagesResponse.json();
@@ -103,7 +123,7 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
     return (
         <section className="dashboard-grid">
             <div className="word-cloud-shell">
-                <WordCloudCanvas todos={sortedTodos} />
+                <WordCloudCanvas messages={messages} />
             </div>
 
             <div className="form-card">

@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
     const client = await getMongoClient();
     const db = client.db(getDatabaseName());
-    const collection = db.collection('todos');
+    const collection = db.collection('correlations');
 
     let changeStream: any;
 
