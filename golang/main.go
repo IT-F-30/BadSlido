@@ -20,15 +20,9 @@ type Message struct {
 }
 
 type Correlation struct {
-<<<<<<< HEAD
 	ID     primitive.ObjectID `bson:"_id,omitempty"`
 	Word   string             `bson:"word"`
 	Weight int32              `bson:"weight"`
-=======
-	ID          primitive.ObjectID `bson:"_id,omitempty"`
-	Correlation string             `bson:"correlation"`
-	Weight      int32              `bson:"weight"`
->>>>>>> 5583e6dd6f6a15723c8dca15691f638ac910d8c0
 }
 
 func getEnv(key, fallback string) string {
@@ -81,11 +75,7 @@ func printAllCorrelations(collection *mongo.Collection) {
 
 	fmt.Println("[Correlations]")
 	for _, corr := range correlations {
-<<<<<<< HEAD
 		fmt.Printf("%s:%s,%d\n", corr.ID.Hex(), corr.Word, corr.Weight)
-=======
-		fmt.Printf("%s:%s,%d\n", corr.ID.Hex(), corr.Correlation, corr.Weight)
->>>>>>> 5583e6dd6f6a15723c8dca15691f638ac910d8c0
 	}
 	fmt.Println()
 }
@@ -98,13 +88,8 @@ func addToCorrelations(correlationsCollection *mongo.Collection, word string) {
 	weight := int32(rand.Intn(100) + 1)
 
 	correlation := Correlation{
-<<<<<<< HEAD
 		Word:   word,
 		Weight: weight,
-=======
-		Correlation: word,
-		Weight:      weight,
->>>>>>> 5583e6dd6f6a15723c8dca15691f638ac910d8c0
 	}
 
 	result, err := correlationsCollection.InsertOne(ctx, correlation)

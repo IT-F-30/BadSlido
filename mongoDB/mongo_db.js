@@ -25,11 +25,7 @@ db.createCollection('correlations', {
             properties: {
                 word: {
                     bsonType: 'string',
-<<<<<<< HEAD
-                    description: 'word must be a string and is required'
-=======
                     description: 'correlation must be a string and is required'
->>>>>>> 5583e6dd6f6a15723c8dca15691f638ac910d8c0
                 },
                 weight: {
                     bsonType: 'int',
