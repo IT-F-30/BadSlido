@@ -1,0 +1,6 @@
+pymongo
+spacy
+numpy
+# 日本語モデルの依存関係
+mecab-python3
+unidic-lite

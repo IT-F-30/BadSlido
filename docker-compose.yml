@@ -16,18 +16,16 @@ services:
       - MONGODB_DB=${MONGODB_DB:-db_badslido}
       - NEXT_TELEMETRY_DISABLED=1
 
-  # Go アプリケーション
-  go:
-    build: ./golang
-    container_name: badslido_go
+  # Python アプリケーション
+  python:
+    build: ./python
+    container_name: badslido_python
     tty: true
-    volumes:
-      - ./golang:/project
-    ports:
-      - "8080:8080"
     environment:
       - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_badslido?authSource=admin}
       - MONGODB_DB=${MONGODB_DB:-db_badslido}
+    depends_on:
+      - db
 
   # MongoDB データベース
   db:
