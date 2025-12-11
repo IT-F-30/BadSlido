@@ -7,8 +7,8 @@ const WORD_CLOUD_CONFIG = {
     fontOffset: 10,
     fontFamily: 'Montserrat, sans-serif',
     verticalEnabled: true,
-    padding_left: 2,
-    padding_top: 2
+    padding_left: 0, // Reduced padding
+    padding_top: 0
 };
 
 enum SpaceType {
@@ -34,6 +34,7 @@ interface PlacedWord {
     font: string;
     fontSize: number;
     rotate: number;
+    index: number; // Added for animation delay
 }
 
 interface Space {
@@ -128,7 +129,7 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
                 span.style.visibility = 'hidden';
                 span.style.fontSize = `${fontSize}px`;
                 span.style.fontFamily = options.fontFamily;
-                span.style.lineHeight = `${fontSize}px`;
+                span.style.lineHeight = '0.9'; // Tighter line height
                 span.style.paddingLeft = `${options.padding_left}px`;
                 span.style.whiteSpace = 'nowrap';
                 span.innerText = text;
@@ -268,7 +269,8 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
                         color,
                         font: options.fontFamily,
                         fontSize,
-                        rotate: pRotate
+                        rotate: pRotate,
+                        index
                     });
                 }
             });
@@ -276,18 +278,19 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
             return placedWords;
         };
 
-        // Try with different scales until we get good placement
+        // Dynamic scaling loop to ensure all words fit
         let result: PlacedWord[] = [];
-        const scales = [1.0, 0.85, 0.7];
+        let currentScale = 1.0;
+        const minScale = 0.2;
+        const scaleStep = 0.1;
 
-        for (const scale of scales) {
-            result = attemptPlacement(scale);
-            const placementRate = result.length / messages.length;
-
-            // If we placed at least 80% of words, or it's the last attempt, use this result
-            if (placementRate >= 0.8 || scale === scales[scales.length - 1]) {
+        while (currentScale >= minScale) {
+            result = attemptPlacement(currentScale);
+            // If all words are placed, or we are at the minimum scale, stop
+            if (result.length === messages.length) {
                 break;
             }
+            currentScale -= scaleStep;
         }
 
         setWords(result);
@@ -303,37 +306,70 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
     }
 
     return (
-        <div
-            ref={containerRef}
-            style={{
-                width: '100%',
-                height: '75vh',
-                position: 'relative',
-                overflow: 'hidden',
-                fontFamily: 'Montserrat, sans-serif'
-            }}
-        >
-            {words.map((word) => (
-                <span
-                    key={word.id}
-                    style={{
-                        position: 'absolute',
-                        left: word.x,
-                        top: word.y,
-                        fontSize: `${word.fontSize}px`,
-                        fontFamily: word.font,
-                        color: word.color,
-                        lineHeight: `${word.fontSize}px`,
-                        paddingLeft: '2px',
-                        whiteSpace: 'nowrap',
-                        transform: `rotate(${word.rotate}deg)`,
-                        transformOrigin: 'center center',
-                        userSelect: 'none'
-                    }}
-                >
-                    {word.text}
-                </span>
-            ))}
-        </div>
+        <>
+            <style jsx global>{`
+                @keyframes popIn {
+                    0% {
+                        opacity: 0;
+                        transform: scale(0) rotate(0deg);
+                    }
+                    80% {
+                         transform: scale(1.1);
+                    }
+                    100% {
+                        opacity: 1;
+                        transform: scale(1);
+                    }
+                }
+            `}</style>
+            <div
+                ref={containerRef}
+                style={{
+                    width: '100%',
+                    height: '75vh',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    fontFamily: 'Montserrat, sans-serif'
+                }}
+            >
+                {words.map((word) => (
+                    <span
+                        key={word.id}
+                        style={{
+                            position: 'absolute',
+                            left: word.x,
+                            top: word.y,
+                            fontSize: `${word.fontSize}px`,
+                            fontFamily: word.font,
+                            color: word.color,
+                            lineHeight: '0.9',
+                            paddingLeft: '0px',
+                            whiteSpace: 'nowrap',
+                            transformOrigin: 'center center',
+                            userSelect: 'none',
+                            // The transform property here needs to handle both the rotation and the animation scale correctly.
+                            // However, since we are using CSS animation for scale, we should apply rotation in a wrapper or handle it carefully.
+                            // A simple way is to use the animation's final state or put rotation in a wrapper.
+                            // But @keyframes overrides transform. Let's try combining or using a wrapper.
+                            // Actually, let's put the rotation in a separate transform style that isn't overridden, 
+                            // OR include rotation in the keyframes if it was static, but it varies per word.
+                            // Best approach: Apply rotation via a wrapper or direct style, and animation on the span itself?
+                            // No, `transform` in style will collide with `transform` in keyframes.
+                            // Let's use a wrapper div for positioning and rotation, and the span for scaling animation.
+                        }}
+                    >
+                        <div style={{
+                            transform: `rotate(${word.rotate}deg)`,
+                            display: 'inline-block',
+                            animation: `popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards`,
+                            animationDelay: `${word.index * 0.05}s`,
+                            opacity: 0 // Start invisible
+                        }}>
+                            {word.text}
+                        </div>
+                    </span>
+                ))}
+            </div>
+        </>
     );
 }
