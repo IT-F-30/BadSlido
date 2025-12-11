@@ -1,4 +1,4 @@
-db = db.getSiblingDB('batlido');
+db = db.getSiblingDB('db_badslido');
 
 // Create collection with validation rules
 db.createCollection('messages', {
@@ -21,11 +21,17 @@ db.createCollection('correlations', {
     validator: {
         $jsonSchema: {
             bsonType: 'object',
-            required: ['correlation'],
+            required: ['word'],
             properties: {
-                correlation: {
+                word: {
                     bsonType: 'string',
-                    description: 'correlation must be a string and is required'
+                    description: 'word must be a string and is required'
+                },
+                weight: {
+                    bsonType: 'int',
+                    minimum: 1,
+                    maximum: 100,
+                    description: 'weight must be an integer between 1 and 100'
                 }
             }
         }

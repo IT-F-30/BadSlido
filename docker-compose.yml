@@ -12,8 +12,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_todo?authSource=admin}
-      - MONGODB_DB=${MONGODB_DB:-db_todo}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_badslido?authSource=admin}
+      - MONGODB_DB=${MONGODB_DB:-db_badslido}
       - NEXT_TELEMETRY_DISABLED=1
 
   # Go アプリケーション
@@ -26,8 +26,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_todo?authSource=admin}
-      - MONGODB_DB=${MONGODB_DB:-db_todo}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_badslido?authSource=admin}
+      - MONGODB_DB=${MONGODB_DB:-db_badslido}
 
   # MongoDB データベース
   db:
@@ -42,7 +42,7 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=root
       - MONGO_INITDB_ROOT_PASSWORD=password
-      - MONGO_INITDB_DATABASE=db_todo
+      - MONGO_INITDB_DATABASE=db_badslido
     healthcheck:
       test: |
         mongosh --eval "try { rs.status() } catch (err) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'db:27017'}]}) }" -u root -p password --authenticationDatabase admin

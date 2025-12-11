@@ -41,15 +41,3 @@ export async function createTodo(payload: Pick<Todo, 'word' | 'weight'>): Promis
         throw error;
     }
 }
-
-export async function deleteTodo(id: string): Promise<void> {
-    try {
-        const client = await getMongoClient();
-        const collection = client.db(getDatabaseName()).collection<Todo>(COLLECTION);
-
-        await collection.deleteOne({ _id: new ObjectId(id) as any });
-    } catch (error) {
-        console.error('Failed to delete todo:', error);
-        throw error;
-    }
-}

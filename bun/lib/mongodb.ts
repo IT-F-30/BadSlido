@@ -1,6 +1,6 @@
 import { MongoClient, MongoClientOptions } from 'mongodb';
 
-const uri = process.env.MONGODB_URI || "mongodb://root:password@db:27017/db_todo?authSource=admin";
+const uri = process.env.MONGODB_URI || "mongodb://root:password@db:27017/db_badslido?authSource=admin";
 const options: MongoClientOptions = {};
 
 let client: MongoClient;
@@ -49,5 +49,5 @@ export function getMongoClient() {
 }
 
 export function getDatabaseName() {
-    return process.env.MONGODB_DB || 'db_todo';
+    return process.env.MONGODB_DB || 'db_badslido';
 }
