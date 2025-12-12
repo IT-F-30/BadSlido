@@ -25,12 +25,17 @@ print("Model loaded.", flush=True)
 class OpinionCluster:
     def __init__(self, first_word, vector):
         self.word_counts = {first_word: 1}
-        self.sum_vector = vector
+        # 単語ごとのベクトルを保持できるようにする (代表単語選出時に使用)
+        self.word_vectors = {first_word: vector}
+        # 必ずコピーして独立させる（参照渡しだと += で元の vector が書き換わるため）
+        self.sum_vector = np.array(vector, dtype=vector.dtype)
         self.count = 1
         self._current_rep = first_word
 
     def add(self, word, vector):
         self.word_counts[word] = self.word_counts.get(word, 0) + 1
+        # ベクトルを保存（上書きでもOK、基本的に同じ単語なら同じベクトル）
+        self.word_vectors[word] = vector
         self.sum_vector += vector
         self.count += 1
     
@@ -39,15 +44,45 @@ class OpinionCluster:
         # カウントを合算
         for w, c in other_cluster.word_counts.items():
             self.word_counts[w] = self.word_counts.get(w, 0) + c
+            # ベクトルも統合 (重複時はどちらでも良いが、念のため保持)
+            if w in other_cluster.word_vectors:
+                self.word_vectors[w] = other_cluster.word_vectors[w]
+        
         # ベクトルを合算
         self.sum_vector += other_cluster.sum_vector
         self.count += other_cluster.count
     
+    def get_log_string(self):
+        # ${代表}:${size}[${ワード},${ワード},...]
+        words_list = ",".join(self.word_counts.keys())
+        return f"{self.representative}:{self.count}[{words_list}]"
+
     @property
     def representative(self):
-        # 最もカウントが多い単語を返す。同数の場合は単語の長さが短い方を優先（「野菜」vs「緑黄色野菜」なら「野菜」になりやすくする工夫）
-        # もしくは単純に辞書順
-        return max(self.word_counts, key=lambda k: (self.word_counts[k], -len(k)))
+        # 1. クラスター内の全単語を候補とする
+        candidates = list(self.word_counts.keys())
+        
+        if len(candidates) == 1:
+            return candidates[0]
+        
+        # 2. 重心（クラスターの平均ベクトル）に最も近い単語を選ぶ (ユークリッド距離)
+        mean_vec = self.center_vector
+        best_word = candidates[0]
+        # 距離は小さい方が良いので無限大で初期化
+        min_dist = float('inf')
+
+        for w in candidates:
+            w_vec = self.word_vectors.get(w)
+            if w_vec is None: continue
+            
+            # ユークリッド距離を計算
+            dist = np.linalg.norm(w_vec - mean_vec)
+            
+            if dist < min_dist:
+                min_dist = dist
+                best_word = w
+                
+        return best_word
 
     @property
     def center_vector(self):
@@ -111,9 +146,9 @@ class OpinionBoxSystem:
             # DB更新 (名前が変わった場合)
             if old_rep != new_rep:
                 self.db[COL_CORRELATIONS].delete_one({"word": old_rep})
-                print(f"Renamed Cluster: '{old_rep}' -> '{new_rep}' (Triggered by '{word}', Score: {max_score:.2f})", flush=True)
+                print(f"Renamed Cluster: '{old_rep}' -> '{new_rep}' (Triggered by '{word}', Score: {max_score:.2f}) -> {best_cluster.get_log_string()}", flush=True)
             else:
-                print(f"Merged '{word}' into '{new_rep}' (Score: {max_score:.2f})", flush=True)
+                print(f"Merged '{word}' into '{new_rep}' (Score: {max_score:.2f}) -> {best_cluster.get_log_string()}", flush=True)
             
             self.db[COL_CORRELATIONS].update_one(
                 {"word": new_rep},
@@ -157,7 +192,9 @@ class OpinionBoxSystem:
                     # ここでは同じ閾値を使います
                     if score > self.threshold:
                         # c2 を c1 に吸収させる
-                        print(f"⚡ Cluster Merge: '{c2.representative}' -> '{c1.representative}' (Score: {score:.2f})", flush=True)
+                        # ログ出力を統合前に出すか、統合後に出すか。統合後の状態が見たいので統合処理後にログを出すが、
+                        # ここでは「こうなるよ」という予告として出すか、c1にmergeした後に出すか。
+                        # ユーザー要望は今の状態を知りたいということなので、マージ後に詳細を出す方が親切。
                         
                         # DBから消える方の代表単語を削除
                         self.db[COL_CORRELATIONS].delete_one({"word": c2.representative})
@@ -166,6 +203,10 @@ class OpinionBoxSystem:
                         old_rep_c1 = c1.current_rep_cache
                         c1.merge_other(c2)
                         new_rep_c1 = c1.representative
+
+                        print(f"⚡ Cluster Merge: '{c2.representative}' -> '{old_rep_c1}' => Now '{new_rep_c1}' (Score: {score:.2f}) -> {c1.get_log_string()}", flush=True)
+
+                        # DBに残る方の更新（名前が変わる可能性も考慮）
 
                         # DBに残る方の更新（名前が変わる可能性も考慮）
                         if old_rep_c1 != new_rep_c1:
