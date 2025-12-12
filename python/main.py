@@ -3,7 +3,6 @@ import time
 import spacy
 import numpy as np
 from pymongo import MongoClient
-from bson.objectid import ObjectId
 
 # --- 環境設定 ---
 MONGO_URI = os.getenv("MONGODB_URI", "mongodb://root:password@db:27017/db_badslido?authSource=admin")
@@ -11,34 +10,44 @@ DB_NAME = os.getenv("MONGODB_DB", "db_badslido")
 COL_MESSAGES = "messages"
 COL_CORRELATIONS = "correlations"
 
-# --- 1. NLPモデルのロード ---
 print("Loading NLP model...", flush=True)
 try:
-    nlp = spacy.load('ja_core_news_lg')
-except OSError:
-    # Dockerビルド時にダウンロードしていない場合のフォールバック（推奨はビルド時に含む）
-    from spacy.cli import download
-    download("ja_core_news_lg")
-    nlp = spacy.load('ja_core_news_lg')
+    nlp = spacy.load('ja_ginza')
+except:
+    # 失敗時はエラーを表示して終了（Dockerfileで入れているはず）
+    print("Error: Model 'ja_ginza' not found. Please ensure it is installed.", flush=True)
+    raise
+    # from spacy.cli import download
+    # download("ja_ginza")
+    # nlp = spacy.load('ja_ginza')
 print("Model loaded.", flush=True)
 
-# --- 2. クラスター管理クラス ---
 class OpinionCluster:
     def __init__(self, first_word, vector):
         self.word_counts = {first_word: 1}
         self.sum_vector = vector
         self.count = 1
-        self._current_rep = first_word # 現在の代表単語を記憶
+        self._current_rep = first_word
 
     def add(self, word, vector):
         self.word_counts[word] = self.word_counts.get(word, 0) + 1
         self.sum_vector += vector
         self.count += 1
     
+    # 別のクラスターを自身に吸収合併するメソッド
+    def merge_other(self, other_cluster):
+        # カウントを合算
+        for w, c in other_cluster.word_counts.items():
+            self.word_counts[w] = self.word_counts.get(w, 0) + c
+        # ベクトルを合算
+        self.sum_vector += other_cluster.sum_vector
+        self.count += other_cluster.count
+    
     @property
     def representative(self):
-        # 最もカウントが多い単語を返す
-        return max(self.word_counts, key=self.word_counts.get)
+        # 最もカウントが多い単語を返す。同数の場合は単語の長さが短い方を優先（「野菜」vs「緑黄色野菜」なら「野菜」になりやすくする工夫）
+        # もしくは単純に辞書順
+        return max(self.word_counts, key=lambda k: (self.word_counts[k], -len(k)))
 
     @property
     def center_vector(self):
@@ -51,82 +60,149 @@ class OpinionCluster:
     def update_rep_cache(self):
         self._current_rep = self.representative
 
-# --- 3. システム本体 ---
 class OpinionBoxSystem:
-    def __init__(self, db, threshold=0.65):
+    # 閾値を 0.63 に設定 (ja_ginzaでの野菜-人参などの類似度 0.65 を考慮)
+    def __init__(self, db, threshold=0.63):
         self.db = db
         self.clusters = []
         self.threshold = threshold
-        # 最後に処理したメッセージのIDを保持（再起動時は最初から読み直すか、永続化するか選択可能）
-        # 今回はシンプルにするため、起動時に既存データを全読み込みし、その後新着を監視します
         self.last_id = None
+
+    def _calculate_similarity(self, vec_a, vec_b):
+        norm_a = np.linalg.norm(vec_a)
+        norm_b = np.linalg.norm(vec_b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return np.dot(vec_a, vec_b) / (norm_a * norm_b)
 
     def process_word(self, word):
         doc = nlp(word)
-        if not doc.has_vector:
-            return # ベクトル化できない単語はスキップ、あるいは「その他」扱い
+        # ベクトルがない場合(OOV)でもスキップせず、独立した単語として登録する (ベクトルは0)
+        if doc.has_vector:
+            new_vec = doc.vector
+        else:
+            print(f"Warning: No vector for '{word}'. treating as unique.", flush=True)
+            new_vec = np.zeros((300,), dtype=np.float32) 
+            # The original instruction had this, but it's problematic if doc.has_vector is false.
+            # if len(doc) > 0 and doc.vector.shape[0] > 0:
+            #      new_vec = np.zeros(doc.vector.shape, dtype=doc.vector.dtype)
 
-        new_vec = doc.vector
         best_cluster = None
         max_score = -1.0
 
-        # 既存クラスターとの比較
+        # 1. 既存クラスターへの所属チェック
         for cluster in self.clusters:
-            vec_a = new_vec
-            vec_b = cluster.center_vector
-            similarity = np.dot(vec_a, vec_b) / (np.linalg.norm(vec_a) * np.linalg.norm(vec_b))
+            score = self._calculate_similarity(new_vec, cluster.center_vector)
             
-            if similarity > self.threshold and similarity > max_score:
-                max_score = similarity
+            # 救済措置: ベクトルがなくても、単語が完全に一致していればマージする
+            if cluster.representative == word:
+                score = 1.0
+            
+            if score > self.threshold and score > max_score:
+                max_score = score
                 best_cluster = cluster
 
-        # DB更新処理
         if best_cluster:
-            # --- 既存グループへの統合 ---
+            # 既存に追加
             old_rep = best_cluster.current_rep_cache
             best_cluster.add(word, new_vec)
             new_rep = best_cluster.representative
             
-            # DB同期: 代表が変わった場合、古い方を消して新しい方を入れる
+            # DB更新 (名前が変わった場合)
             if old_rep != new_rep:
                 self.db[COL_CORRELATIONS].delete_one({"word": old_rep})
+                print(f"Renamed Cluster: '{old_rep}' -> '{new_rep}' (Triggered by '{word}', Score: {max_score:.2f})", flush=True)
+            else:
+                print(f"Merged '{word}' into '{new_rep}' (Score: {max_score:.2f})", flush=True)
             
-            # Upsertで更新
             self.db[COL_CORRELATIONS].update_one(
                 {"word": new_rep},
                 {"$set": {"weight": best_cluster.count}},
                 upsert=True
             )
-            # キャッシュ更新
             best_cluster.update_rep_cache()
-            print(f"Updated cluster: {old_rep} -> {new_rep} ({best_cluster.count})", flush=True)
-
         else:
-            # --- 新規グループ作成 ---
+            # 新規作成
             new_cluster = OpinionCluster(word, new_vec)
             self.clusters.append(new_cluster)
+            self.db[COL_CORRELATIONS].insert_one({"word": word, "weight": 1})
+            print(f"Created '{word}'", flush=True)
+
+        # 2. 【重要】クラスター同士のマージ処理（お掃除タイム）
+        self._merge_similar_clusters()
+
+    def _merge_similar_clusters(self):
+        # クラスターの数が減らなくなるまで繰り返す（AとBがくっつき、さらにCともくっつく可能性があるため）
+        while True:
+            merged_occurred = False
+            clusters_to_remove = []
             
-            self.db[COL_CORRELATIONS].insert_one({
-                "word": word,
-                "weight": 1
-            })
-            print(f"Created cluster: {word}", flush=True)
+            # 総当たりでチェック (リストのコピーを使ってループ)
+            # 効率は悪いですが単語数数千レベルならローカルで問題なく動きます
+            current_clusters = self.clusters[:]
+            skip_indices = set()
+
+            for i in range(len(current_clusters)):
+                if i in skip_indices: continue
+                
+                for j in range(i + 1, len(current_clusters)):
+                    if j in skip_indices: continue
+
+                    c1 = current_clusters[i]
+                    c2 = current_clusters[j]
+
+                    score = self._calculate_similarity(c1.center_vector, c2.center_vector)
+                    
+                    # グループ同士のマージは、単語単体よりも少し厳しめにするか、同じにするか
+                    # ここでは同じ閾値を使います
+                    if score > self.threshold:
+                        # c2 を c1 に吸収させる
+                        print(f"⚡ Cluster Merge: '{c2.representative}' -> '{c1.representative}' (Score: {score:.2f})", flush=True)
+                        
+                        # DBから消える方の代表単語を削除
+                        self.db[COL_CORRELATIONS].delete_one({"word": c2.representative})
+                        
+                        # マージ実行
+                        old_rep_c1 = c1.current_rep_cache
+                        c1.merge_other(c2)
+                        new_rep_c1 = c1.representative
+
+                        # DBに残る方の更新（名前が変わる可能性も考慮）
+                        if old_rep_c1 != new_rep_c1:
+                            self.db[COL_CORRELATIONS].delete_one({"word": old_rep_c1})
+                        
+                        self.db[COL_CORRELATIONS].update_one(
+                            {"word": new_rep_c1},
+                            {"$set": {"weight": c1.count}},
+                            upsert=True
+                        )
+                        c1.update_rep_cache()
+
+                        # ループ管理
+                        clusters_to_remove.append(c2)
+                        skip_indices.add(j)
+                        merged_occurred = True
+
+            # リストから削除済みクラスターを除去
+            for c in clusters_to_remove:
+                if c in self.clusters:
+                    self.clusters.remove(c)
+
+            # 一度もマージが起きなければ終了
+            if not merged_occurred:
+                break
 
     def run(self):
-        print("System started. Listening for messages...", flush=True)
-        
-        # 起動時に correlations をリセットしたい場合はコメントアウトを外す
-        # self.db[COL_CORRELATIONS].delete_many({}) 
+        print("System started. Listening...", flush=True)
+        # 起動時に一度DBをクリーンアップしたい場合は以下を有効化
+        self.db[COL_CORRELATIONS].delete_many({}) 
 
         while True:
-            # 未処理のメッセージを取得
             query = {}
             if self.last_id:
                 query = {"_id": {"$gt": self.last_id}}
             
-            # 古い順に取得
             cursor = self.db[COL_MESSAGES].find(query).sort("_id", 1)
-            
             count = 0
             for doc in cursor:
                 word = doc.get("word")
@@ -136,23 +212,19 @@ class OpinionBoxSystem:
                 count += 1
             
             if count == 0:
-                time.sleep(1) # 新着がない場合は少し待つ
+                time.sleep(1)
 
-# --- Main Entry ---
 if __name__ == "__main__":
-    # DB接続待機 (簡易的なリトライ処理)
     client = None
     for i in range(10):
         try:
             client = MongoClient(MONGO_URI)
             client.admin.command('ping')
-            print("Connected to MongoDB", flush=True)
             break
-        except Exception as e:
-            print(f"Waiting for MongoDB... ({e})", flush=True)
+        except Exception:
             time.sleep(2)
     
     if client:
-        db = client[DB_NAME]
-        system = OpinionBoxSystem(db)
+        # 閾値を 0.63 に設定 (ja_ginzaでの野菜-人参などの類似度 0.65 を考慮)
+        system = OpinionBoxSystem(client[DB_NAME], threshold=0.63)
         system.run()

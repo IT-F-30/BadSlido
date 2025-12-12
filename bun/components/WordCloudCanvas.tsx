@@ -8,7 +8,8 @@ const WORD_CLOUD_CONFIG = {
     fontFamily: 'Montserrat, sans-serif',
     verticalEnabled: true,
     padding_left: 4, // Restored padding to prevent overlaps
-    padding_top: 4
+    padding_top: 4,
+    spacing: 12 // Global spacing
 };
 
 
@@ -67,13 +68,15 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
             }
         };
 
-        // Check for intersection between two rectangles
+        // Check for intersection between two rectangles with spacing
         const intersect = (word1: PlacedWord, x2: number, y2: number, w2: number, h2: number): boolean => {
+            // Add spacing to the periodic checks
+            const spacing = WORD_CLOUD_CONFIG.spacing;
             return !(
-                x2 + w2 <= word1.x ||
-                x2 >= word1.x + word1.width ||
-                y2 + h2 <= word1.y ||
-                y2 >= word1.y + word1.height
+                x2 + w2 + spacing <= word1.x ||
+                x2 >= word1.x + word1.width + spacing ||
+                y2 + h2 + spacing <= word1.y ||
+                y2 >= word1.y + word1.height + spacing
             );
         };
 
@@ -142,8 +145,9 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
                 // BUT: The DOM element is transformed.
                 // Our collision logic compares axis-aligned bounding boxes. 
                 // If we rotate 270, the visual width is height, and visual height is width.
-                const visualW = rotate === 0 ? w : h;
-                const visualH = rotate === 0 ? h : w;
+                // We add a safety factor of 1.1 to ensure no overlaps due to font rendering differences.
+                const visualW = (rotate === 0 ? w : h) * 1.1;
+                const visualH = (rotate === 0 ? h : w) * 1.1;
 
                 // Max iterations to prevent infinite loops if it doesn't fit
                 let maxIter = 2500;
@@ -240,7 +244,7 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
                 @keyframes popIn {
                     0% {
                         opacity: 0;
-                        transform: scale(0) rotate(0deg);
+                        transform: scale(0);
                     }
                     80% {
                          transform: scale(1.1);
@@ -261,43 +265,62 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
                     fontFamily: 'Montserrat, sans-serif'
                 }}
             >
-                {words.map((word) => (
-                    <span
-                        key={word.id}
-                        style={{
-                            position: 'absolute',
-                            left: word.x,
-                            top: word.y,
-                            fontSize: `${word.fontSize}px`,
-                            fontFamily: word.font,
-                            color: word.color,
-                            lineHeight: '0.9',
-                            paddingLeft: '0px',
-                            whiteSpace: 'nowrap',
-                            transformOrigin: 'center center',
-                            userSelect: 'none',
-                            // The transform property here needs to handle both the rotation and the animation scale correctly.
-                            // However, since we are using CSS animation for scale, we should apply rotation in a wrapper or handle it carefully.
-                            // A simple way is to use the animation's final state or put rotation in a wrapper.
-                            // But @keyframes overrides transform. Let's try combining or using a wrapper.
-                            // Actually, let's put the rotation in a separate transform style that isn't overridden, 
-                            // OR include rotation in the keyframes if it was static, but it varies per word.
-                            // Best approach: Apply rotation via a wrapper or direct style, and animation on the span itself?
-                            // No, `transform` in style will collide with `transform` in keyframes.
-                            // Let's use a wrapper div for positioning and rotation, and the span for scaling animation.
-                        }}
-                    >
-                        <div style={{
-                            transform: `rotate(${word.rotate}deg)`,
-                            display: 'inline-block',
-                            animation: `popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards`,
-                            animationDelay: `${word.index * 0.05}s`,
-                            opacity: 0 // Start invisible
-                        }}>
-                            {word.text}
-                        </div>
-                    </span>
-                ))}
+                {words.map((word) => {
+                    // Calculate unrotated dimensions
+                    // If rotated (270deg), visual width was the original height, and visual height was original width.
+                    // word.width/height are the visual (bounding box) dimensions.
+                    const isRotated = word.rotate !== 0;
+                    const unrotatedW = isRotated ? word.height : word.width;
+                    const unrotatedH = isRotated ? word.width : word.height;
+
+                    // Calculate the render position adjustment.
+                    // The collision box (visual box) is at (word.x, word.y) with size (word.width, word.height).
+                    // We render a generic span of size (unrotatedW, unrotatedH) at (left, top).
+                    // We must position this span such that its CENTER aligns with the collision box CENTER.
+                    // Collision Center X = word.x + word.width / 2
+                    // Collision Center Y = word.y + word.height / 2
+                    // Span Center X = left + unrotatedW / 2
+                    // Span Center Y = top + unrotatedH / 2
+                    // => left = word.x + word.width / 2 - unrotatedW / 2
+                    // => top = word.y + word.height / 2 - unrotatedH / 2
+
+                    const left = word.x + word.width / 2 - unrotatedW / 2;
+                    const top = word.y + word.height / 2 - unrotatedH / 2;
+
+                    return (
+                        <span
+                            key={word.id}
+                            style={{
+                                position: 'absolute',
+                                left: left,
+                                top: top,
+                                width: `${unrotatedW}px`,
+                                height: `${unrotatedH}px`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                userSelect: 'none',
+                                pointerEvents: 'none', // Prevent interaction interfering
+                            }}
+                        >
+                            <div style={{
+                                fontSize: `${word.fontSize}px`,
+                                fontFamily: word.font,
+                                color: word.color,
+                                lineHeight: '0.9',
+                                whiteSpace: 'nowrap',
+                                transform: `rotate(${word.rotate}deg)`,
+                                transformOrigin: 'center center',
+                                display: 'inline-block',
+                                animation: `popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards`,
+                                animationDelay: `${word.index * 0.05}s`,
+                                opacity: 0 // Start invisible
+                            }}>
+                                {word.text}
+                            </div>
+                        </span>
+                    );
+                })}
             </div>
         </>
     );
