@@ -123,7 +123,7 @@ export default function TodosClient({ initialTodos }: TodosClientProps) {
     return (
         <section className="dashboard-grid">
             <div className="word-cloud-shell">
-                <WordCloudCanvas messages={messages} />
+                <WordCloudCanvas todos={messages} />
             </div>
 
             <div className="form-card">

@@ -1,18 +1,27 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import type { Message } from '@/lib/messages';
+import type { Todo } from '@/types/todo';
 
 const WORD_CLOUD_CONFIG = {
     fontOffset: 10,
     fontFamily: 'Montserrat, sans-serif',
     verticalEnabled: true,
-    padding_left: 4, // Restored padding to prevent overlaps
-    padding_top: 4,
-    spacing: 12 // Global spacing
+    padding_left: 2,
+    padding_top: 2
 };
 
+enum SpaceType {
+    LB = 1,  // Left Bottom
+    LT = 2,  // Left Top
+    RT = 3,  // Right Top
+    RB = 4   // Right Bottom
+}
 
+enum AlignmentType {
+    HR = 1,  // Horizontal
+    VR = 2   // Vertical
+}
 
 interface PlacedWord {
     id: string;
@@ -25,10 +34,15 @@ interface PlacedWord {
     font: string;
     fontSize: number;
     rotate: number;
-    index: number; // Added for animation delay
 }
 
-
+interface Space {
+    spaceType: SpaceType;
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+}
 
 function getRandomColor() {
     const letters = '0123456789ABCDEF';
@@ -41,12 +55,12 @@ function getRandomColor() {
     return color;
 }
 
-export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
+export default function WordCloudCanvas({ todos }: { todos: Todo[] }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [words, setWords] = useState<PlacedWord[]>([]);
 
     useEffect(() => {
-        if (!messages.length || !containerRef.current) {
+        if (!todos || !todos.length || !containerRef.current) {
             setWords([]);
             return;
         }
@@ -68,33 +82,45 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
             }
         };
 
-        // Check for intersection between two rectangles with spacing
-        const intersect = (word1: PlacedWord, x2: number, y2: number, w2: number, h2: number): boolean => {
-            // Add spacing to the periodic checks
-            const spacing = WORD_CLOUD_CONFIG.spacing;
-            return !(
-                x2 + w2 + spacing <= word1.x ||
-                x2 >= word1.x + word1.width + spacing ||
-                y2 + h2 + spacing <= word1.y ||
-                y2 >= word1.y + word1.height + spacing
-            );
-        };
-
-        // Try to place words with different font scales using Spiral Layout
+        // Try to place words with different font scales
         const attemptPlacement = (fontScale: number): PlacedWord[] => {
             const options = {
                 ...WORD_CLOUD_CONFIG,
                 minFont: Math.max(Math.floor(tWidth / 30), 10) * fontScale,
-                maxFont: Math.floor(tWidth / 8) * fontScale,
+                maxFont: Math.floor(tWidth / 6) * fontScale,
             };
 
-            const sortedWords = [...messages].sort((a, b) => b.weight - a.weight);
+            const sortedTodos = [...todos].sort((a, b) => b.weight - a.weight);
 
-            if (sortedWords.length === 0) return [];
+            if (sortedTodos.length === 0) return [];
 
-            const maxWeight = sortedWords[0].weight;
-            const minWeight = sortedWords[sortedWords.length - 1].weight;
+            const maxWeight = sortedTodos[0].weight;
+            const minWeight = sortedTodos[sortedTodos.length - 1].weight;
             const fontFactor = (options.maxFont - options.minFont) / ((maxWeight - minWeight) || 1);
+
+            let spaceDataObject: { [key: string]: Space } = {};
+            let spaceIdArray: string[] = [];
+            let distance_Counter = 1;
+
+            const pushSpaceData = (type: SpaceType, w: number, h: number, x: number, y: number) => {
+                // Only push spaces that are within bounds
+                if (w <= 0 || h <= 0 || x < 0 || y < 0 || x >= tWidth || y >= tHeight) return;
+
+                const distance = Math.sqrt((xOffset - x) * (xOffset - x) + (yOffset - y) * (yOffset - y));
+                const distanceS = `${distance}_${distance_Counter++}`;
+
+                let inserted = false;
+                for (let index = 0; index < spaceIdArray.length; index++) {
+                    if (distance < parseFloat(spaceIdArray[index].split("_")[0])) {
+                        spaceIdArray.splice(index, 0, distanceS);
+                        inserted = true;
+                        break;
+                    }
+                }
+                if (!inserted) spaceIdArray.push(distanceS);
+
+                spaceDataObject[distanceS] = { spaceType: type, width: w, height: h, x, y };
+            };
 
             const measureWord = (text: string, fontSize: number) => {
                 const span = document.createElement('span');
@@ -102,9 +128,8 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
                 span.style.visibility = 'hidden';
                 span.style.fontSize = `${fontSize}px`;
                 span.style.fontFamily = options.fontFamily;
-                span.style.lineHeight = '0.9'; // Tighter line height
-                // Add padding to the measurement to ensure spacing
-                span.style.padding = `${options.padding_top}px ${options.padding_left}px`;
+                span.style.lineHeight = `${fontSize}px`;
+                span.style.paddingLeft = `${options.padding_left}px`;
                 span.style.whiteSpace = 'nowrap';
                 span.innerText = text;
                 document.body.appendChild(span);
@@ -116,121 +141,160 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
 
             const placedWords: PlacedWord[] = [];
 
-            // Spiral parameters
-            const spiralStep = 0.1; // Radian step
-            const spiralOriginX = xOffset;
-            const spiralOriginY = yOffset;
-
-            // Loop through each word to place
-            for (let i = 0; i < sortedWords.length; i++) {
-                const wordItem = sortedWords[i];
-                const fontSize = Math.floor(((wordItem.weight - minWeight) * fontFactor) + options.minFont + options.fontOffset);
+            sortedTodos.forEach((todo, index) => {
+                const fontSize = Math.floor(((todo.weight - minWeight) * fontFactor) + options.minFont + options.fontOffset);
                 const color = getRandomColor();
 
-                const { w, h } = measureWord(wordItem.word, fontSize);
+                const { w, h } = measureWord(todo.word, fontSize);
 
-                let angle = 0;
-                let radius = 0;
                 let placed = false;
-                let finalX = 0;
-                let finalY = 0;
-                let rotate = 0;
+                let pX = 0, pY = 0, pRotate = 0;
 
-                // 50% chance to rotate vertical if enabled (and not the very first word usually)
-                if (options.verticalEnabled && Math.random() < 0.5) {
-                    rotate = 270;
-                }
+                if (index === 0) {
+                    const xoff = xOffset - w / 2;
+                    const yoff = yOffset - h / 2;
 
-                // If rotated, width/height for bounds checking are swapped relative to the unrotated rect
-                // BUT: The DOM element is transformed.
-                // Our collision logic compares axis-aligned bounding boxes. 
-                // If we rotate 270, the visual width is height, and visual height is width.
-                // We add a safety factor of 1.1 to ensure no overlaps due to font rendering differences.
-                const visualW = (rotate === 0 ? w : h) * 1.1;
-                const visualH = (rotate === 0 ? h : w) * 1.1;
+                    // Check if first word fits
+                    if (isWithinBounds(xoff, yoff, w, h, 0)) {
+                        pX = xoff;
+                        pY = yoff;
+                        placed = true;
 
-                // Max iterations to prevent infinite loops if it doesn't fit
-                let maxIter = 2500;
+                        pushSpaceData(SpaceType.LB, tWidth - xoff - w, h, xoff + w, yoff + h / 2);
+                        pushSpaceData(SpaceType.LT, w, tHeight - yoff - h, xoff + w / 2, yoff + h);
+                        pushSpaceData(SpaceType.RT, xoff, h, xoff, yoff + h / 2);
+                        pushSpaceData(SpaceType.RB, w, yoff, xoff + w / 2, yoff);
 
-                while (maxIter-- > 0) {
-                    // Archimedean spiral: r = b * theta
-                    // We can just use radius increasing with angle
-                    // Simple uniform spiral:
-                    // x = center + radius * cos(angle)
-                    // y = center + radius * sin(angle)
+                        pushSpaceData(SpaceType.LT, w / 2, h / 2, xoff + w, yoff + h / 2);
+                        pushSpaceData(SpaceType.RT, w / 2, h / 2, xoff + w / 2, yoff + h);
+                        pushSpaceData(SpaceType.RB, w / 2, h / 2, xoff, yoff + h / 2);
+                        pushSpaceData(SpaceType.LB, w / 2, h / 2, xoff + w / 2, yoff);
 
-                    // We want radius to grow slowly to keep it tight
-                    radius = 5 * angle;
+                        pushSpaceData(SpaceType.LT, tWidth - xoff - w - w / 2, tHeight - yoff - h / 2, xoff + w + w / 2, yoff + h / 2);
+                        pushSpaceData(SpaceType.RT, xoff + w / 2, tHeight - yoff - h - h / 2, xoff + w / 2, yoff + h + h / 2);
+                        pushSpaceData(SpaceType.RB, xoff - w / 2, yoff + h / 2, xoff - w / 2, yoff + h / 2);
+                        pushSpaceData(SpaceType.LB, xoff + w / 2, yoff - h / 2, xoff + w / 2, yoff - h / 2);
+                    }
+                } else {
+                    for (let i = 0; i < spaceIdArray.length; i++) {
+                        const spaceId = spaceIdArray[i];
+                        const space = spaceDataObject[spaceId];
+                        if (!space) continue;
 
-                    const x = spiralOriginX + radius * Math.cos(angle) - visualW / 2;
-                    const y = spiralOriginY + radius * Math.sin(angle) - visualH / 2;
+                        let alignmentInd = 0;
+                        let alignmentIndCount = 0;
 
-                    // Bounds check
-                    if (isWithinBounds(x, y, visualW, visualH, 0)) {
-                        // Collision check
-                        let collision = false;
-                        for (const existing of placedWords) {
-                            if (intersect(existing, x, y, visualW, visualH)) {
-                                collision = true;
-                                break;
-                            }
+                        if (w <= space.width && h <= space.height) {
+                            alignmentInd = AlignmentType.HR;
+                            alignmentIndCount++;
                         }
 
-                        if (!collision) {
-                            finalX = x;
-                            finalY = y;
-                            placed = true;
-                            break;
+                        if (options.verticalEnabled && h <= space.width && w <= space.height) {
+                            alignmentInd = AlignmentType.VR;
+                            alignmentIndCount++;
+                        }
+
+                        if (alignmentIndCount > 0) {
+                            delete spaceDataObject[spaceId];
+                            spaceIdArray.splice(i, 1);
+
+                            if (alignmentIndCount > 1) {
+                                if (Math.random() * 5 > 3) {
+                                    alignmentInd = AlignmentType.VR;
+                                } else {
+                                    alignmentInd = AlignmentType.HR;
+                                }
+                            }
+
+                            let xMul = 1, yMul = 1;
+                            let xMulS = 1, yMulS = 1;
+
+                            switch (space.spaceType) {
+                                case SpaceType.LB: xMul = 0; yMul = -1; xMulS = 1; yMulS = -1; break;
+                                case SpaceType.LT: xMul = 0; yMul = 0; xMulS = 1; yMulS = 1; break;
+                                case SpaceType.RT: xMul = -1; yMul = 0; xMulS = -1; yMulS = 1; break;
+                                case SpaceType.RB: xMul = -1; yMul = -1; xMulS = -1; yMulS = -1; break;
+                            }
+
+                            if (alignmentInd === AlignmentType.HR) {
+                                pX = space.x + xMul * w;
+                                pY = space.y + yMul * h;
+                                pRotate = 0;
+
+                                // Check bounds before placing
+                                if (isWithinBounds(pX, pY, w, h, pRotate)) {
+                                    placed = true;
+
+                                    if (Math.random() * 2 > 1) {
+                                        pushSpaceData(space.spaceType, space.width - w, h, space.x + xMulS * w, space.y);
+                                        pushSpaceData(space.spaceType, space.width, space.height - h, space.x, space.y + yMulS * h);
+                                    } else {
+                                        pushSpaceData(space.spaceType, space.width - w, space.height, space.x + xMulS * w, space.y);
+                                        pushSpaceData(space.spaceType, w, space.height - h, space.x, space.y + yMulS * h);
+                                    }
+                                }
+                            } else {
+                                pX = space.x + xMul * h - (w - h) / 2;
+                                pY = space.y + yMul * w + (w - h) / 2;
+                                pRotate = 270;
+
+                                // Check bounds before placing
+                                if (isWithinBounds(pX, pY, w, h, pRotate)) {
+                                    placed = true;
+
+                                    if (Math.random() * 2 > 1) {
+                                        pushSpaceData(space.spaceType, space.width - h, w, space.x + xMulS * h, space.y);
+                                        pushSpaceData(space.spaceType, space.width, space.height - w, space.x, space.y + yMulS * w);
+                                    } else {
+                                        pushSpaceData(space.spaceType, space.width - h, space.height, space.x + xMulS * h, space.y);
+                                        pushSpaceData(space.spaceType, h, space.height - w, space.x, space.y + yMulS * w);
+                                    }
+                                }
+                            }
+
+                            if (placed) break;
                         }
                     }
-
-                    angle += spiralStep;
                 }
 
                 if (placed) {
                     placedWords.push({
-                        id: wordItem._id || `${wordItem.word}-${i}`,
-                        text: wordItem.word,
-                        x: finalX,
-                        y: finalY,
-                        width: visualW,
-                        height: visualH,
+                        id: todo._id || `${todo.word}-${index}`,
+                        text: todo.word,
+                        x: pX,
+                        y: pY,
+                        width: w,
+                        height: h,
                         color,
                         font: options.fontFamily,
                         fontSize,
-                        rotate,
-                        index: i
+                        rotate: pRotate
                     });
-                } else {
-                    // If we failed to place a word, this scale attempt fails
-                    return [];
                 }
-            }
+            });
 
             return placedWords;
         };
 
-        // Dynamic scaling loop to ensure all words fit
+        // Try with different scales until we get good placement
         let result: PlacedWord[] = [];
-        let currentScale = 1.0;
-        const minScale = 0.2;
-        const scaleStep = 0.05;
+        const scales = [1.0, 0.85, 0.7];
 
-        // Try to find the largest scale that works
-        while (currentScale >= minScale) {
-            const attempt = attemptPlacement(currentScale);
-            if (attempt.length === messages.length) {
-                result = attempt;
+        for (const scale of scales) {
+            result = attemptPlacement(scale);
+            const placementRate = result.length / todos.length;
+
+            // If we placed at least 80% of words, or it's the last attempt, use this result
+            if (placementRate >= 0.8 || scale === scales[scales.length - 1]) {
                 break;
             }
-            currentScale -= scaleStep;
         }
 
         setWords(result);
 
-    }, [messages]);
+    }, [todos]);
 
-    if (!messages.length) {
+    if (!todos || !todos.length) {
         return (
             <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
                 <p style={{ color: '#999' }}>データがありません</p>
@@ -239,89 +303,37 @@ export default function WordCloudCanvas({ messages }: { messages: Message[] }) {
     }
 
     return (
-        <>
-            <style jsx global>{`
-                @keyframes popIn {
-                    0% {
-                        opacity: 0;
-                        transform: scale(0);
-                    }
-                    80% {
-                         transform: scale(1.1);
-                    }
-                    100% {
-                        opacity: 1;
-                        transform: scale(1);
-                    }
-                }
-            `}</style>
-            <div
-                ref={containerRef}
-                style={{
-                    width: '100%',
-                    height: '75vh',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    fontFamily: 'Montserrat, sans-serif'
-                }}
-            >
-                {words.map((word) => {
-                    // Calculate unrotated dimensions
-                    // If rotated (270deg), visual width was the original height, and visual height was original width.
-                    // word.width/height are the visual (bounding box) dimensions.
-                    const isRotated = word.rotate !== 0;
-                    const unrotatedW = isRotated ? word.height : word.width;
-                    const unrotatedH = isRotated ? word.width : word.height;
-
-                    // Calculate the render position adjustment.
-                    // The collision box (visual box) is at (word.x, word.y) with size (word.width, word.height).
-                    // We render a generic span of size (unrotatedW, unrotatedH) at (left, top).
-                    // We must position this span such that its CENTER aligns with the collision box CENTER.
-                    // Collision Center X = word.x + word.width / 2
-                    // Collision Center Y = word.y + word.height / 2
-                    // Span Center X = left + unrotatedW / 2
-                    // Span Center Y = top + unrotatedH / 2
-                    // => left = word.x + word.width / 2 - unrotatedW / 2
-                    // => top = word.y + word.height / 2 - unrotatedH / 2
-
-                    const left = word.x + word.width / 2 - unrotatedW / 2;
-                    const top = word.y + word.height / 2 - unrotatedH / 2;
-
-                    return (
-                        <span
-                            key={word.id}
-                            style={{
-                                position: 'absolute',
-                                left: left,
-                                top: top,
-                                width: `${unrotatedW}px`,
-                                height: `${unrotatedH}px`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                userSelect: 'none',
-                                pointerEvents: 'none', // Prevent interaction interfering
-                            }}
-                        >
-                            <div style={{
-                                fontSize: `${word.fontSize}px`,
-                                fontFamily: word.font,
-                                color: word.color,
-                                lineHeight: '0.9',
-                                whiteSpace: 'nowrap',
-                                transform: `rotate(${word.rotate}deg)`,
-                                transformOrigin: 'center center',
-                                display: 'inline-block',
-                                animation: `popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards`,
-                                animationDelay: `${word.index * 0.05}s`,
-                                opacity: 0 // Start invisible
-                            }}>
-                                {word.text}
-                            </div>
-                        </span>
-                    );
-                })}
-            </div>
-        </>
+        <div
+            ref={containerRef}
+            style={{
+                width: '100%',
+                height: '75vh',
+                position: 'relative',
+                overflow: 'hidden',
+                fontFamily: 'Montserrat, sans-serif'
+            }}
+        >
+            {words.map((word) => (
+                <span
+                    key={word.id}
+                    style={{
+                        position: 'absolute',
+                        left: word.x,
+                        top: word.y,
+                        fontSize: `${word.fontSize}px`,
+                        fontFamily: word.font,
+                        color: word.color,
+                        lineHeight: `${word.fontSize}px`,
+                        paddingLeft: '2px',
+                        whiteSpace: 'nowrap',
+                        transform: `rotate(${word.rotate}deg)`,
+                        transformOrigin: 'center center',
+                        userSelect: 'none'
+                    }}
+                >
+                    {word.text}
+                </span>
+            ))}
+        </div>
     );
 }
