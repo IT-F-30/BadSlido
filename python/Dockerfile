@@ -21,6 +21,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. GiNZAモデルはpip install ja-ginzaでインストールされるため、追加のダウンロードは不要
 # RUN python -m spacy download ja_core_news_lg
 
+# モデルキャッシュ用ディレクトリを作成
+RUN mkdir -p /app/models
+
+# ボリュームとしてマウント可能に
+VOLUME /app/models
+
 # アプリケーションコードのコピー
 COPY main.py .
 

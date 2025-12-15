@@ -21,6 +21,8 @@ services:
     build: ./python
     container_name: badslido_python
     tty: true
+    volumes:
+      - ./models:/app/models
     environment:
       - MONGODB_URI=${MONGODB_URI:-mongodb://root:password@db:27017/db_badslido?authSource=admin}
       - MONGODB_DB=${MONGODB_DB:-db_badslido}

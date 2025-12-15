@@ -1,6 +1,5 @@
 pymongo
-spacy
 numpy
-# 日本語モデルの依存関係 (GiNZA)
-ginza
-ja-ginza
+sentence-transformers
+scikit-learn
+# intfloat/multilingual-e5-large モデルは sentence_transformers で自動ダウンロードされます

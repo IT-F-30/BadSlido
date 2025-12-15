@@ -1,7 +1,8 @@
 import os
-import time
-import spacy
 import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from pymongo import MongoClient
 
 # --- 環境設定 ---
@@ -10,262 +11,314 @@ DB_NAME = os.getenv("MONGODB_DB", "db_badslido")
 COL_MESSAGES = "messages"
 COL_CORRELATIONS = "correlations"
 
-print("Loading NLP model...", flush=True)
-try:
-    nlp = spacy.load('ja_ginza')
-except:
-    # 失敗時はエラーを表示して終了（Dockerfileで入れているはず）
-    print("Error: Model 'ja_ginza' not found. Please ensure it is installed.", flush=True)
-    raise
-    # from spacy.cli import download
-    # download("ja_ginza")
-    # nlp = spacy.load('ja_ginza')
-print("Model loaded.", flush=True)
+# モデルのローカルキャッシュディレクトリ（環境変数で設定することで確実にキャッシュされる）
+MODEL_CACHE_DIR = "/app/models"
+MODEL_NAME = "intfloat/multilingual-e5-large"
 
-class OpinionCluster:
-    def __init__(self, first_word, vector):
-        self.word_counts = {first_word: 1}
-        # 単語ごとのベクトルを保持できるようにする (代表単語選出時に使用)
-        self.word_vectors = {first_word: vector}
-        # 必ずコピーして独立させる（参照渡しだと += で元の vector が書き換わるため）
-        self.sum_vector = np.array(vector, dtype=vector.dtype)
-        self.count = 1
-        self._current_rep = first_word
+# sentence-transformersとHugging Faceのキャッシュディレクトリを明示的に設定
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = MODEL_CACHE_DIR
+os.environ["HF_HOME"] = MODEL_CACHE_DIR
 
-    def add(self, word, vector):
-        self.word_counts[word] = self.word_counts.get(word, 0) + 1
-        # ベクトルを保存（上書きでもOK、基本的に同じ単語なら同じベクトル）
-        self.word_vectors[word] = vector
-        self.sum_vector += vector
-        self.count += 1
+# ディレクトリが存在しない場合は作成
+os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
+
+
+class TextGrouper:
+    """類似度に基づいて文字列をグループ化するクラス"""
     
-    # 別のクラスターを自身に吸収合併するメソッド
-    def merge_other(self, other_cluster):
-        # カウントを合算
-        for w, c in other_cluster.word_counts.items():
-            self.word_counts[w] = self.word_counts.get(w, 0) + c
-            # ベクトルも統合 (重複時はどちらでも良いが、念のため保持)
-            if w in other_cluster.word_vectors:
-                self.word_vectors[w] = other_cluster.word_vectors[w]
-        
-        # ベクトルを合算
-        self.sum_vector += other_cluster.sum_vector
-        self.count += other_cluster.count
+    def __init__(self, model_name: str = MODEL_NAME, distance_threshold: float = 0.3):
+        """
+        Args:
+            model_name: 使用するモデル名
+            distance_threshold: クラスタリングの距離閾値 (0.0 - 2.0)
+                               小さいほど厳密（グループ数が増える）
+                               大きいほど緩い（グループ数が減る）
+        """
+        self.distance_threshold = distance_threshold
+        print(f"Loading sentence-transformers model ({model_name})...", flush=True)
+        print(f"Model cache directory: {MODEL_CACHE_DIR}", flush=True)
+        self.model = SentenceTransformer(model_name, cache_folder=MODEL_CACHE_DIR)
+        print("Model loaded successfully!", flush=True)
     
-    def get_log_string(self):
-        # ${代表}:${size}[${ワード},${ワード},...]
-        words_list = ",".join(self.word_counts.keys())
-        return f"{self.representative}:{self.count}[{words_list}]"
-
-    @property
-    def representative(self):
-        # 1. クラスター内の全単語を候補とする
-        candidates = list(self.word_counts.keys())
-        
-        if len(candidates) == 1:
-            return candidates[0]
-        
-        # 2. 重心（クラスターの平均ベクトル）に最も近い単語を選ぶ (ユークリッド距離)
-        mean_vec = self.center_vector
-        best_word = candidates[0]
-        # 距離は小さい方が良いので無限大で初期化
-        min_dist = float('inf')
-
-        for w in candidates:
-            w_vec = self.word_vectors.get(w)
-            if w_vec is None: continue
-            
-            # ユークリッド距離を計算
-            dist = np.linalg.norm(w_vec - mean_vec)
-            
-            if dist < min_dist:
-                min_dist = dist
-                best_word = w
-                
-        return best_word
-
-    @property
-    def center_vector(self):
-        return self.sum_vector / self.count
-
-    @property
-    def current_rep_cache(self):
-        return self._current_rep
-
-    def update_rep_cache(self):
-        self._current_rep = self.representative
-
-class OpinionBoxSystem:
-    # 閾値を 0.63 に設定 (ja_ginzaでの野菜-人参などの類似度 0.65 を考慮)
-    def __init__(self, db, threshold=0.63):
-        self.db = db
-        self.clusters = []
-        self.threshold = threshold
-        self.last_id = None
-
-    def _calculate_similarity(self, vec_a, vec_b):
-        norm_a = np.linalg.norm(vec_a)
-        norm_b = np.linalg.norm(vec_b)
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return np.dot(vec_a, vec_b) / (norm_a * norm_b)
-
-    def process_word(self, word):
-        doc = nlp(word)
-        # ベクトルがない場合(OOV)でもスキップせず、独立した単語として登録する (ベクトルは0)
-        if doc.has_vector:
-            new_vec = doc.vector
+    def set_distance_threshold(self, threshold: float):
+        """距離閾値を設定する（小さいほど厳密）"""
+        if 0.0 <= threshold <= 2.0:
+            self.distance_threshold = threshold
+            print(f"Distance threshold updated to: {threshold}", flush=True)
         else:
-            print(f"Warning: No vector for '{word}'. treating as unique.", flush=True)
-            new_vec = np.zeros((300,), dtype=np.float32) 
-            # The original instruction had this, but it's problematic if doc.has_vector is false.
-            # if len(doc) > 0 and doc.vector.shape[0] > 0:
-            #      new_vec = np.zeros(doc.vector.shape, dtype=doc.vector.dtype)
-
-        best_cluster = None
-        max_score = -1.0
-
-        # 1. 既存クラスターへの所属チェック
-        for cluster in self.clusters:
-            score = self._calculate_similarity(new_vec, cluster.center_vector)
+            raise ValueError("Distance threshold must be between 0.0 and 2.0")
+    
+    def get_embeddings(self, texts: list[str]) -> np.ndarray:
+        """文字列リストのembeddingsを取得"""
+        # E5モデルはクエリに"query: "プレフィックスを推奨
+        prefixed_texts = [f"query: {text}" for text in texts]
+        return self.model.encode(prefixed_texts, normalize_embeddings=True)
+    
+    def calculate_similarity_matrix(self, texts: list[str]) -> np.ndarray:
+        """文字列間の類似度マトリックスを計算"""
+        embeddings = self.get_embeddings(texts)
+        return cosine_similarity(embeddings)
+    
+    def group_texts_hierarchical(self, texts: list[str], n_clusters: int = None) -> list[list[str]]:
+        """
+        階層的クラスタリングでグループ化
+        
+        Args:
+            texts: グループ化する文字列のリスト
+            n_clusters: クラスタ数を指定（Noneの場合はdistance_thresholdを使用）
             
-            # 救済措置: ベクトルがなくても、単語が完全に一致していればマージする
-            if cluster.representative == word:
-                score = 1.0
-            
-            if score > self.threshold and score > max_score:
-                max_score = score
-                best_cluster = cluster
-
-        if best_cluster:
-            # 既存に追加
-            old_rep = best_cluster.current_rep_cache
-            best_cluster.add(word, new_vec)
-            new_rep = best_cluster.representative
-            
-            # DB更新 (名前が変わった場合)
-            if old_rep != new_rep:
-                self.db[COL_CORRELATIONS].delete_one({"word": old_rep})
-                print(f"Renamed Cluster: '{old_rep}' -> '{new_rep}' (Triggered by '{word}', Score: {max_score:.2f}) -> {best_cluster.get_log_string()}", flush=True)
-            else:
-                print(f"Merged '{word}' into '{new_rep}' (Score: {max_score:.2f}) -> {best_cluster.get_log_string()}", flush=True)
-            
-            self.db[COL_CORRELATIONS].update_one(
-                {"word": new_rep},
-                {"$set": {"weight": best_cluster.count}},
-                upsert=True
+        Returns:
+            グループ化された文字列のリストのリスト
+        """
+        if not texts:
+            return []
+        if len(texts) == 1:
+            return [texts]
+        
+        embeddings = self.get_embeddings(texts)
+        
+        # 階層的クラスタリング
+        if n_clusters is not None:
+            clustering = AgglomerativeClustering(
+                n_clusters=n_clusters,
+                metric='cosine',
+                linkage='average'
             )
-            best_cluster.update_rep_cache()
         else:
-            # 新規作成
-            new_cluster = OpinionCluster(word, new_vec)
-            self.clusters.append(new_cluster)
-            self.db[COL_CORRELATIONS].insert_one({"word": word, "weight": 1})
-            print(f"Created '{word}'", flush=True)
-
-        # 2. 【重要】クラスター同士のマージ処理（お掃除タイム）
-        self._merge_similar_clusters()
-
-    def _merge_similar_clusters(self):
-        # クラスターの数が減らなくなるまで繰り返す（AとBがくっつき、さらにCともくっつく可能性があるため）
-        while True:
-            merged_occurred = False
-            clusters_to_remove = []
+            clustering = AgglomerativeClustering(
+                n_clusters=None,
+                distance_threshold=self.distance_threshold,
+                metric='cosine',
+                linkage='average'
+            )
+        
+        labels = clustering.fit_predict(embeddings)
+        
+        # グループを構築
+        groups = {}
+        for i, label in enumerate(labels):
+            if label not in groups:
+                groups[label] = []
+            groups[label].append(texts[i])
+        
+        return list(groups.values())
+    
+    def group_texts_dbscan(self, texts: list[str], eps: float = 0.3, min_samples: int = 1) -> list[list[str]]:
+        """
+        DBSCANクラスタリングでグループ化（外れ値検出が可能）
+        
+        Args:
+            texts: グループ化する文字列のリスト
+            eps: 近傍の距離閾値
+            min_samples: クラスタを形成する最小サンプル数
             
-            # 総当たりでチェック (リストのコピーを使ってループ)
-            # 効率は悪いですが単語数数千レベルならローカルで問題なく動きます
-            current_clusters = self.clusters[:]
-            skip_indices = set()
+        Returns:
+            グループ化された文字列のリストのリスト
+        """
+        if not texts:
+            return []
+        if len(texts) == 1:
+            return [texts]
+        
+        embeddings = self.get_embeddings(texts)
+        
+        # cosine距離に変換（1 - cosine_similarity）
+        # 浮動小数点誤差で負の値が発生する可能性があるためクリップ
+        distance_matrix = np.clip(1 - cosine_similarity(embeddings), 0, 2)
+        
+        clustering = DBSCAN(eps=eps, min_samples=min_samples, metric='precomputed')
+        labels = clustering.fit_predict(distance_matrix)
+        
+        # グループを構築（-1はノイズ/外れ値）
+        groups = {}
+        outliers = []
+        for i, label in enumerate(labels):
+            if label == -1:
+                outliers.append(texts[i])
+            else:
+                if label not in groups:
+                    groups[label] = []
+                groups[label].append(texts[i])
+        
+        result = list(groups.values())
+        # 外れ値は個別グループとして追加
+        for outlier in outliers:
+            result.append([outlier])
+        
+        return result
+    
+    def print_groups(self, texts: list[str], method: str = "hierarchical", n_clusters: int = None, eps: float = None):
+        """グループ化結果をコンソールに表示
+        
+        Args:
+            texts: グループ化する文字列のリスト
+            method: "hierarchical" または "dbscan"
+            n_clusters: 階層的クラスタリングでクラスタ数を指定
+            eps: DBSCANの距離閾値
+        """
+        print("\n" + "=" * 50)
+        print(f"Input texts ({len(texts)} items):")
+        print("-" * 50)
+        for text in texts:
+            print(f"  - {text}")
+        
+        print("\n" + "=" * 50)
+        
+        if method == "hierarchical":
+            if n_clusters:
+                print(f"Hierarchical Clustering (n_clusters: {n_clusters}):")
+            else:
+                print(f"Hierarchical Clustering (distance_threshold: {self.distance_threshold}):")
+            groups = self.group_texts_hierarchical(texts, n_clusters)
+        elif method == "dbscan":
+            eps_val = eps if eps else self.distance_threshold
+            print(f"DBSCAN Clustering (eps: {eps_val}):")
+            groups = self.group_texts_dbscan(texts, eps=eps_val)
+        else:
+            raise ValueError(f"Unknown method: {method}")
+        
+        print("-" * 50)
+        
+        for i, group in enumerate(groups, 1):
+            print(f"\nGroup {i} ({len(group)} items):")
+            for text in group:
+                print(f"  - {text}")
+        
+        print("\n" + "=" * 50)
+        print(f"Total: {len(groups)} groups from {len(texts)} items")
+        print("=" * 50)
+        
+        return groups
+    
+    def print_similarity_matrix(self, texts: list[str]):
+        """類似度マトリックスを表示（デバッグ用）"""
+        similarity_matrix = self.calculate_similarity_matrix(texts)
+        
+        print("\n" + "=" * 50)
+        print("Similarity Matrix:")
+        print("-" * 50)
+        
+        # ヘッダー
+        max_len = max(len(t) for t in texts)
+        header = " " * (max_len + 2)
+        for i, text in enumerate(texts):
+            header += f"{i:>6}"
+        print(header)
+        
+        # 各行
+        for i, text in enumerate(texts):
+            row = f"{text:<{max_len}}  "
+            for j in range(len(texts)):
+                row += f"{similarity_matrix[i][j]:>6.2f}"
+            print(row)
+        
+        print("=" * 50)
 
-            for i in range(len(current_clusters)):
-                if i in skip_indices: continue
+
+def main():
+    """
+    MongoDBからメッセージを読み込み、グループ化して結果を保存（無限ループ）
+    """
+    import time
+    
+    # ポーリング間隔（秒）
+    POLL_INTERVAL = 5
+    
+    # MongoDB接続
+    print(f"Connecting to MongoDB: {MONGO_URI}", flush=True)
+    client = MongoClient(MONGO_URI)
+    db = client[DB_NAME]
+    messages_col = db[COL_MESSAGES]
+    correlations_col = db[COL_CORRELATIONS]
+    
+    # グルーパーを初期化（最初に1回だけ）
+    print("Initializing TextGrouper...", flush=True)
+    grouper = TextGrouper(distance_threshold=0.174)
+    
+    # 前回処理したメッセージ数を記録（変更検出用）
+    last_message_count = -1
+    last_message_hash = None
+    
+    print(f"\nStarting infinite loop (polling every {POLL_INTERVAL}s)...", flush=True)
+    print("=" * 50, flush=True)
+    
+    while True:
+        try:
+            # messagesコレクションからデータを取得
+            messages = list(messages_col.find({}, {"_id": 1, "word": 1}))
+            
+            # メッセージのハッシュを計算（変更検出用）
+            current_hash = hash(tuple((str(m["_id"]), m["word"]) for m in messages)) if messages else None
+            
+            # 変更がない場合はスキップ
+            if current_hash == last_message_hash:
+                time.sleep(POLL_INTERVAL)
+                continue
+            
+            last_message_hash = current_hash
+            
+            print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Detected change in messages", flush=True)
+            print(f"Reading from {DB_NAME}.{COL_MESSAGES}...", flush=True)
+            
+            if not messages:
+                print("No messages found. Waiting...", flush=True)
+                time.sleep(POLL_INTERVAL)
+                continue
+            
+            print(f"Found {len(messages)} messages:", flush=True)
+            for msg in messages:
+                print(f"  {msg['_id']}, {msg['word']}", flush=True)
+            
+            # テキストのリストとIDのマッピングを作成
+            words = [msg["word"] for msg in messages]
+            ids = [str(msg["_id"]) for msg in messages]
+            
+            # グループ化を実行
+            print("\nGrouping texts...", flush=True)
+            groups = grouper.group_texts_hierarchical(words)
+            
+            # 結果を表示
+            print(f"\n{'='*50}")
+            print(f"Grouping Results:")
+            print(f"{'-'*50}")
+            
+            # correlationsに保存するデータを準備
+            correlation_docs = []
+            
+            for group_idx, group in enumerate(groups, 1):
+                sum_items = len(group)
+                print(f"\nGroup {group_idx} ({sum_items} items):")
                 
-                for j in range(i + 1, len(current_clusters)):
-                    if j in skip_indices: continue
-
-                    c1 = current_clusters[i]
-                    c2 = current_clusters[j]
-
-                    score = self._calculate_similarity(c1.center_vector, c2.center_vector)
-                    
-                    # グループ同士のマージは、単語単体よりも少し厳しめにするか、同じにするか
-                    # ここでは同じ閾値を使います
-                    if score > self.threshold:
-                        # c2 を c1 に吸収させる
-                        # ログ出力を統合前に出すか、統合後に出すか。統合後の状態が見たいので統合処理後にログを出すが、
-                        # ここでは「こうなるよ」という予告として出すか、c1にmergeした後に出すか。
-                        # ユーザー要望は今の状態を知りたいということなので、マージ後に詳細を出す方が親切。
-                        
-                        # DBから消える方の代表単語を削除
-                        self.db[COL_CORRELATIONS].delete_one({"word": c2.representative})
-                        
-                        # マージ実行
-                        old_rep_c1 = c1.current_rep_cache
-                        c1.merge_other(c2)
-                        new_rep_c1 = c1.representative
-
-                        print(f"⚡ Cluster Merge: '{c2.representative}' -> '{old_rep_c1}' => Now '{new_rep_c1}' (Score: {score:.2f}) -> {c1.get_log_string()}", flush=True)
-
-                        # DBに残る方の更新（名前が変わる可能性も考慮）
-
-                        # DBに残る方の更新（名前が変わる可能性も考慮）
-                        if old_rep_c1 != new_rep_c1:
-                            self.db[COL_CORRELATIONS].delete_one({"word": old_rep_c1})
-                        
-                        self.db[COL_CORRELATIONS].update_one(
-                            {"word": new_rep_c1},
-                            {"$set": {"weight": c1.count}},
-                            upsert=True
-                        )
-                        c1.update_rep_cache()
-
-                        # ループ管理
-                        clusters_to_remove.append(c2)
-                        skip_indices.add(j)
-                        merged_occurred = True
-
-            # リストから削除済みクラスターを除去
-            for c in clusters_to_remove:
-                if c in self.clusters:
-                    self.clusters.remove(c)
-
-            # 一度もマージが起きなければ終了
-            if not merged_occurred:
-                break
-
-    def run(self):
-        print("System started. Listening...", flush=True)
-        # 起動時に一度DBをクリーンアップしたい場合は以下を有効化
-        self.db[COL_CORRELATIONS].delete_many({}) 
-
-        while True:
-            query = {}
-            if self.last_id:
-                query = {"_id": {"$gt": self.last_id}}
+                for word in group:
+                    # このwordに対応するすべてのIDを取得
+                    matching_ids = [id for id, w in zip(ids, words) if w == word]
+                    for msg_id in matching_ids:
+                        print(f"  {msg_id}, {word}, {sum_items}", flush=True)
+                        correlation_docs.append({
+                            "word": word,
+                            "weight": sum_items
+                        })
             
-            cursor = self.db[COL_MESSAGES].find(query).sort("_id", 1)
-            count = 0
-            for doc in cursor:
-                word = doc.get("word")
-                if word:
-                    self.process_word(word)
-                self.last_id = doc["_id"]
-                count += 1
+            print(f"\n{'='*50}")
+            print(f"Total: {len(groups)} groups from {len(messages)} items")
+            print(f"{'='*50}")
             
-            if count == 0:
-                time.sleep(1)
+            # correlationsコレクションをクリアして新しいデータを挿入
+            print(f"\nClearing {DB_NAME}.{COL_CORRELATIONS}...", flush=True)
+            correlations_col.delete_many({})
+            
+            print(f"Inserting {len(correlation_docs)} documents to {DB_NAME}.{COL_CORRELATIONS}...", flush=True)
+            if correlation_docs:
+                correlations_col.insert_many(correlation_docs)
+            
+            print("Done! Waiting for next change...", flush=True)
+            
+        except Exception as e:
+            print(f"Error: {e}", flush=True)
+            print("Retrying in 5 seconds...", flush=True)
+        
+        time.sleep(POLL_INTERVAL)
+
 
 if __name__ == "__main__":
-    client = None
-    for i in range(10):
-        try:
-            client = MongoClient(MONGO_URI)
-            client.admin.command('ping')
-            break
-        except Exception:
-            time.sleep(2)
-    
-    if client:
-        # 閾値を 0.63 に設定 (ja_ginzaでの野菜-人参などの類似度 0.65 を考慮)
-        system = OpinionBoxSystem(client[DB_NAME], threshold=0.63)
-        system.run()
+    main()
